@@ -57,13 +57,37 @@ class AuthService {
   static const String _keyRecordarUsuarioId = 'recordar_usuario_id';
   static const String _keyRecordarNombre = 'recordar_nombre_completo';
 
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  // En macOS el Llavero "data protection" (el default del plugin) exige el
+  // entitlement keychain-access-groups, que a su vez exige firmar con un
+  // certificado de desarrollo; sin él, guardar el token falla. El Llavero
+  // clásico no necesita nada de eso. MacOsOptions solo se aplica en macOS.
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
+    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+  );
 
   Future<void> _guardarLocal({required String token, required int usuarioId, required DateTime expiraEn}) async {
     await _secureStorage.write(key: _keyToken, value: token);
     await _secureStorage.write(key: _keyUsuarioId, value: usuarioId.toString());
     await _secureStorage.write(key: _keyExpiraEn, value: expiraEn.toIso8601String());
     await _secureStorage.delete(key: _keyBackgroundedAt);
+  }
+
+  /// Como [_guardarLocal], pero para justo después de que el servidor ya
+  /// creó la sesión: si el almacenamiento seguro falla (p. ej. el Llavero de
+  /// macOS rechaza la escritura), se cierra esa sesión en el servidor antes
+  /// de propagar el error. Si no, la sesión quedaría activa del lado del
+  /// servidor sin que este dispositivo tenga el token, y la regla de sesión
+  /// única bloquearía cualquier reintento hasta que expire sola.
+  Future<void> _guardarLocalOLiberar({required String token, required int usuarioId, required DateTime expiraEn}) async {
+    try {
+      await _guardarLocal(token: token, usuarioId: usuarioId, expiraEn: expiraEn);
+    } catch (_) {
+      await _cerrarSesionServidor(usuarioId, token);
+      try {
+        await _limpiarLocal();
+      } catch (_) {}
+      throw ArgumentError('No se pudo guardar la sesión en este dispositivo. Intenta de nuevo.');
+    }
   }
 
   Future<void> _limpiarLocal() async {
@@ -209,7 +233,7 @@ class AuthService {
     final token = response.data['token'] as String;
     final usuarioId = response.data['usuarioId'] as int;
     final expiraEn = DateTime.parse(response.data['expiraEn'] as String);
-    await _guardarLocal(token: token, usuarioId: usuarioId, expiraEn: expiraEn);
+    await _guardarLocalOLiberar(token: token, usuarioId: usuarioId, expiraEn: expiraEn);
 
     final user = AuthUser(
       usuarioId: usuarioId,
@@ -326,7 +350,7 @@ class AuthService {
 
     final nuevoToken = response.data['token'] as String;
     final expiraEn = DateTime.parse(response.data['expiraEn'] as String);
-    await _guardarLocal(token: nuevoToken, usuarioId: usuarioId, expiraEn: expiraEn);
+    await _guardarLocalOLiberar(token: nuevoToken, usuarioId: usuarioId, expiraEn: expiraEn);
 
     // El token de "recordar" rota en cada uso: hay que guardar el nuevo o
     // el próximo desbloqueo biométrico ya no funcionaría.
@@ -372,3 +396,4 @@ class AuthService {
     await _secureStorage.delete(key: _keyRecordarNombre);
   }
 }
+
