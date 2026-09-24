@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mysql_client_plus/exception.dart';
+import '../services/api_client.dart';
 import '../services/cliente_service.dart';
 import '../services/pago_service.dart';
 import '../services/prestamo_service.dart';
@@ -84,10 +84,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         _allPayments = payments;
         _isLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = 'No se pudo cargar el historial de pagos. Verifica la conexión con la base de datos.';
+        _loadError = e is NoConnectionException ? e.message : 'No se pudo cargar el historial de pagos.';
         _isLoading = false;
       });
     }
@@ -658,14 +658,17 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
 
   List<Map<String, dynamic>> _clientes = [];
   bool _isLoadingClientes = true;
+  String? _clientesLoadError;
 
   int? _selectedClienteId;
   List<Map<String, dynamic>> _prestamos = [];
   bool _isLoadingPrestamos = false;
+  String? _prestamosLoadError;
 
   int? _selectedPrestamoId;
   List<Map<String, dynamic>> _cuotas = [];
   bool _isLoadingCuotas = false;
+  String? _cuotasLoadError;
 
   int? _selectedCuotaId;
   String _selectedMethod = 'Transferencia Bancaria';
@@ -735,6 +738,10 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
   }
 
   Future<void> _loadClientes() async {
+    setState(() {
+      _isLoadingClientes = true;
+      _clientesLoadError = null;
+    });
     try {
       final clientes = await _clienteService.fetchAll();
       if (!mounted) return;
@@ -742,9 +749,12 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
         _clientes = clientes.where((c) => c['activo'] == true).toList();
         _isLoadingClientes = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoadingClientes = false);
+      setState(() {
+        _isLoadingClientes = false;
+        _clientesLoadError = e is NoConnectionException ? e.message : 'No se pudieron cargar los clientes.';
+      });
     }
   }
 
@@ -758,6 +768,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
       _amountController.clear();
       _conceptController.clear();
       _isLoadingPrestamos = clienteId != null;
+      _prestamosLoadError = null;
     });
     if (clienteId == null) return;
     try {
@@ -767,9 +778,12 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
         _prestamos = prestamos;
         _isLoadingPrestamos = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoadingPrestamos = false);
+      setState(() {
+        _isLoadingPrestamos = false;
+        _prestamosLoadError = e is NoConnectionException ? e.message : 'No se pudieron cargar los préstamos.';
+      });
     }
   }
 
@@ -784,6 +798,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
       _conceptController.clear();
       _isLoadingCuotas = prestamoId != null && _esTipoPorCuota;
       _isLoadingSaldo = prestamoId != null && !_esTipoPorCuota;
+      _cuotasLoadError = null;
     });
     if (prestamoId == null) return;
 
@@ -795,9 +810,12 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
           _cuotas = cuotas;
           _isLoadingCuotas = false;
         });
-      } catch (_) {
+      } catch (e) {
         if (!mounted) return;
-        setState(() => _isLoadingCuotas = false);
+        setState(() {
+          _isLoadingCuotas = false;
+          _cuotasLoadError = e is NoConnectionException ? e.message : 'No se pudieron cargar las cuotas.';
+        });
       }
       return;
     }
@@ -829,7 +847,9 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
       if (!mounted) return;
       setState(() {
         _isLoadingSaldo = false;
-        _saldoError = e is ArgumentError ? '${e.message}' : 'No se pudo obtener el saldo actual del préstamo.';
+        _saldoError = e is ArgumentError
+            ? '${e.message}'
+            : (e is NoConnectionException ? e.message : 'No se pudo obtener el saldo actual del préstamo.');
       });
     }
   }
@@ -970,14 +990,10 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
       setState(() => _isSaving = false);
       if (!mounted) return;
       _snack('${e.message}');
-    } on MySQLServerException catch (e) {
+    } catch (e) {
       setState(() => _isSaving = false);
       if (!mounted) return;
-      _snack('Error al guardar: ${e.message}');
-    } catch (_) {
-      setState(() => _isSaving = false);
-      if (!mounted) return;
-      _snack('No se pudo registrar el movimiento. Intenta de nuevo.');
+      _snack(e is NoConnectionException ? e.message : 'No se pudo registrar el movimiento. Intenta de nuevo.');
     }
   }
 
@@ -1076,7 +1092,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
               CustomDropdown<int>(
                 key: ValueKey('cliente_${_clientes.length}_${_isLoadingClientes}_$_prefillTick'),
                 initialValue: _selectedClienteId,
-                enabled: !_isLoadingClientes,
+                enabled: !_isLoadingClientes && _clientesLoadError == null,
                 decoration: InputDecoration(
                   labelText: _isLoadingClientes ? 'Cargando clientes...' : 'Cliente',
                   prefixIcon: const Icon(Icons.person, color: Colors.black),
@@ -1091,6 +1107,17 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                     .toList(),
                 onChanged: _onClienteChanged,
               ),
+              if (_clientesLoadError != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(_clientesLoadError!, style: TextStyle(fontSize: 11, color: Colors.red.shade700)),
+                    ),
+                    TextButton(onPressed: _loadClientes, child: const Text('Reintentar', style: TextStyle(fontSize: 12))),
+                  ],
+                ),
+              ],
               const SizedBox(height: 12),
 
               // Selector de Préstamo (solo si el cliente tiene varios, pero
@@ -1098,7 +1125,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
               CustomDropdown<int>(
                 key: ValueKey('prestamo_${_selectedClienteId}_$_prefillTick'),
                 initialValue: _selectedPrestamoId,
-                enabled: _selectedClienteId != null && !_isLoadingPrestamos,
+                enabled: _selectedClienteId != null && !_isLoadingPrestamos && _prestamosLoadError == null,
                 decoration: InputDecoration(
                   labelText: _isLoadingPrestamos ? 'Cargando préstamos...' : 'Préstamo',
                   prefixIcon: const Icon(Icons.request_page_outlined, color: Colors.black),
@@ -1113,7 +1140,20 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                     .toList(),
                 onChanged: _onPrestamoChanged,
               ),
-              if (_selectedClienteId != null && !_isLoadingPrestamos && _prestamos.isEmpty) ...[
+              if (_prestamosLoadError != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(_prestamosLoadError!, style: TextStyle(fontSize: 11, color: Colors.red.shade700)),
+                    ),
+                    TextButton(
+                      onPressed: () => _onClienteChanged(_selectedClienteId),
+                      child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ] else if (_selectedClienteId != null && !_isLoadingPrestamos && _prestamos.isEmpty) ...[
                 const SizedBox(height: 6),
                 Text('Este cliente no tiene préstamos activos.', style: TextStyle(fontSize: 11, color: Colors.grey.shade800)),
               ],
@@ -1127,13 +1167,15 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                 CustomDropdown<int>(
                   key: ValueKey('cuota_${_selectedPrestamoId}_${_tipoMovimiento}_$_prefillTick'),
                   initialValue: _selectedCuotaId,
-                  enabled: _selectedPrestamoId != null && !_isLoadingCuotas && _cuotas.isNotEmpty,
+                  enabled: _selectedPrestamoId != null && !_isLoadingCuotas && _cuotas.isNotEmpty && _cuotasLoadError == null,
                   decoration: InputDecoration(
                     labelText: _isLoadingCuotas
                         ? 'Cargando cuotas...'
-                        : (_selectedPrestamoId != null && _cuotas.isEmpty)
-                            ? 'Sin cuotas pendientes'
-                            : 'Cuota Pendiente',
+                        : _cuotasLoadError != null
+                            ? 'No se pudo cargar'
+                            : (_selectedPrestamoId != null && _cuotas.isEmpty)
+                                ? 'Sin cuotas pendientes'
+                                : 'Cuota Pendiente',
                     prefixIcon: const Icon(Icons.list_alt, color: Colors.black),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1147,7 +1189,20 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                       .toList(),
                   onChanged: _onCuotaChanged,
                 ),
-                if (_selectedPrestamoId != null && !_isLoadingCuotas && _cuotas.isEmpty) ...[
+                if (_cuotasLoadError != null) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(_cuotasLoadError!, style: TextStyle(fontSize: 11, color: Colors.red.shade700)),
+                      ),
+                      TextButton(
+                        onPressed: () => _onPrestamoChanged(_selectedPrestamoId),
+                        child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ] else if (_selectedPrestamoId != null && !_isLoadingCuotas && _cuotas.isEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
                     'Este préstamo no tiene cuotas pendientes por cobrar.',

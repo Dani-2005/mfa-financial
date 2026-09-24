@@ -1,5 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import '../services/api_client.dart';
 import '../services/dashboard_service.dart';
 import '../widgets/mini_charts.dart' show abreviarMonto;
 import 'payments_screen.dart' show PagoPrefill;
@@ -59,10 +60,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _totalCuotasPendientes = proximasCuotas['total_pendientes'] as int;
         _isLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = 'No se pudieron cargar los datos del panel.';
+        _loadError = e is NoConnectionException ? e.message : 'No se pudieron cargar los datos del panel.';
         _isLoading = false;
       });
     }
@@ -342,11 +343,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            _formatCurrency(_totalCapital ?? 0),
-                            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.black),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                _formatCurrency(_totalCapital ?? 0),
+                                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.black),
+                                maxLines: 1,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 4),
                           _buildVariacionLabel(),
@@ -367,7 +373,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Capital nuevo · 6 meses (toca para ver el monto)',
+                            'Capital nuevo · 6 meses',
                             style: TextStyle(fontSize: 9, color: Colors.grey.shade700),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -483,6 +489,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Text(
                 'PRÓXIMAS CUOTAS POR COBRAR',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black),
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -493,6 +500,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Text(
                 '$_totalCuotasPendientes Pendiente${_totalCuotasPendientes == 1 ? '' : 's'}',
                 style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black87),
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
             )
@@ -669,6 +677,7 @@ class _CapitalBarChart extends StatelessWidget {
                 interval: maxEje / 2,
                 getTitlesWidget: (value, meta) => Text(
                   abreviarMonto(value),
+                  textScaler: TextScaler.noScaling,
                   style: TextStyle(fontSize: 7, color: Colors.grey.shade700),
                 ),
               ),
@@ -682,7 +691,11 @@ class _CapitalBarChart extends StatelessWidget {
                   if (i < 0 || i >= etiquetas.length) return const SizedBox();
                   return Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: Text(etiquetas[i], style: TextStyle(fontSize: 8, color: Colors.grey.shade700)),
+                    child: Text(
+                      etiquetas[i],
+                      textScaler: TextScaler.noScaling,
+                      style: TextStyle(fontSize: 8, color: Colors.grey.shade700),
+                    ),
                   );
                 },
               ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 
 /// Muestra el diálogo de "Cambiar mi Contraseña" para el usuario logueado.
@@ -70,9 +71,9 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
     } on ArgumentError catch (e) {
       setState(() => _isSaving = false);
       _showError('${e.message}');
-    } catch (_) {
+    } catch (e) {
       setState(() => _isSaving = false);
-      _showError('No se pudo actualizar la contraseña. Intenta de nuevo.');
+      _showError(e is NoConnectionException ? e.message : 'No se pudo actualizar la contraseña. Intenta de nuevo.');
     }
   }
 

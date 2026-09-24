@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Credenciales reales del servidor (contraseña de MySQL en producción) —
+# nunca deben subirse al repo. Ver server/lib/db_config.dart.example.
+server/lib/db_config.dart

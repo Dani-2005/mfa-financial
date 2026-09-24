@@ -1,25 +1,23 @@
 import 'dart:convert';
-import 'database_service.dart';
-import 'session.dart';
+import 'api_client.dart';
+import 'auth_service.dart';
 
+/// Solo lectura: el servidor MAF API en el VPS ya audita por su cuenta las
+/// acciones de todos los servicios (todos migrados a la API), así que esta
+/// clase ya no necesita escribir nada — solo consultar el historial.
 class AuditoriaService {
-  /// Nombre completo del administrador que tiene la sesión activa en este
-  /// momento. Si por alguna razón se llama sin sesión (no debería pasar en
-  /// el flujo normal de la app, ya que todo queda detrás del login), queda
-  /// registrado como 'Sistema' en vez de fallar.
-  String get usuarioResponsable => Session.current?.nombreCompleto ?? 'Sistema';
-
   Future<List<Map<String, dynamic>>> fetchAll() async {
-    final result = await DatabaseService.instance.query(
-      'SELECT auditoriaSistema_id, tabla_afectada, registro_id, accion, '
-      'datos_anteriores, datos_nuevos, fecha_accion, usuario_responsable '
-      'FROM auditoria_sistema '
-      'ORDER BY fecha_accion DESC, auditoriaSistema_id DESC',
-    );
+    final headers = await AuthService.instance.authHeaders();
+    if (headers == null) throw StateError('No hay una sesión activa.');
 
-    return result.rows.map((row) {
-      final fields = row.typedAssoc();
-      final fecha = fields['fecha_accion'] as DateTime?;
+    final response = await ApiClient.instance.get('/api/auditoria/', headers: headers);
+    if (!response.ok) throw StateError('No se pudo cargar la auditoría.');
+
+    final registros = (response.data['registros'] as List).cast<Map<String, dynamic>>();
+
+    return registros.map((fields) {
+      final fechaStr = fields['fecha_accion'] as String?;
+      final fecha = fechaStr == null || fechaStr.isEmpty ? null : DateTime.parse(fechaStr);
 
       return {
         'id': fields['auditoriaSistema_id'],
@@ -59,27 +57,5 @@ class AuditoriaService {
   String _formatFecha(DateTime fecha) {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${fecha.year}-${two(fecha.month)}-${two(fecha.day)} ${two(fecha.hour)}:${two(fecha.minute)}:${two(fecha.second)}';
-  }
-
-  Future<void> log({
-    required String tablaAfectada,
-    required String registroId,
-    required String accion,
-    Map<String, dynamic>? datosAnteriores,
-    Map<String, dynamic>? datosNuevos,
-  }) async {
-    await DatabaseService.instance.query(
-      'INSERT INTO auditoria_sistema '
-      '(tabla_afectada, registro_id, accion, datos_anteriores, datos_nuevos, usuario_responsable) '
-      'VALUES (:tabla, :registroId, :accion, :anteriores, :nuevos, :usuario)',
-      {
-        'tabla': tablaAfectada,
-        'registroId': registroId,
-        'accion': accion,
-        'anteriores': datosAnteriores == null ? null : jsonEncode(datosAnteriores),
-        'nuevos': datosNuevos == null ? null : jsonEncode(datosNuevos),
-        'usuario': usuarioResponsable,
-      },
-    );
   }
 }

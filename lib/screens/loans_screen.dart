@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mysql_client_plus/exception.dart';
 
+import '../services/api_client.dart';
 import '../services/cliente_service.dart';
 import '../services/loan_calculator.dart';
 import '../services/prestamo_service.dart';
@@ -53,10 +53,10 @@ class _LoansScreenState extends State<LoansScreen> {
         _loans = loans;
         _isLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = 'No se pudo cargar la lista de préstamos. Verifica la conexión con la base de datos.';
+        _loadError = e is NoConnectionException ? e.message : 'No se pudo cargar la lista de préstamos.';
         _isLoading = false;
       });
     }
@@ -423,15 +423,32 @@ class _LoansScreenState extends State<LoansScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Listado de Préstamos',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: Color.fromARGB(255, 0, 0, 0),
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const style = TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Color.fromARGB(255, 0, 0, 0),
+                  );
+                  const full = 'Listado de Préstamos';
+                  // Mismo tamaño de letra siempre: si el título completo no
+                  // entra en una línea (letra grande de accesibilidad,
+                  // pantalla angosta), se usa una versión corta en vez de
+                  // achicar la fuente o cortarla con puntos suspensivos.
+                  final painter = TextPainter(
+                    text: const TextSpan(text: full, style: style),
+                    textScaler: MediaQuery.textScalerOf(context),
+                    textDirection: TextDirection.ltr,
+                    maxLines: 1,
+                  )..layout();
+                  final cabeCompleto = painter.width <= constraints.maxWidth;
+                  return Text(
+                    cabeCompleto ? full : 'Listado',
+                    style: style,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  );
+                },
               ),
               const SizedBox(height: 2),
               Row(
@@ -564,14 +581,17 @@ class _LoansScreenState extends State<LoansScreen> {
     final pagados = _loans.where((l) => l['status'] == 'PAGADO').length;
     final todos = _loans.length - pagados;
 
-    return Row(
+    // Wrap en vez de Row: si los 4 botones no caben en una sola línea (letra
+    // grande, pantalla angosta), el que no entra baja a una segunda línea
+    // en vez de achicar el texto (eso hacía que unos botones se vieran con
+    // letra más chica que otros).
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
         _buildFilterTab('Todos', todos, 0),
-        const SizedBox(width: 8),
         _buildFilterTab('Al día', alDia, 1),
-        const SizedBox(width: 8),
         _buildFilterTab('Pendientes', pendientes, 2),
-        const SizedBox(width: 8),
         _buildFilterTab('Pagados', pagados, 3),
       ],
     );
@@ -579,14 +599,13 @@ class _LoansScreenState extends State<LoansScreen> {
 
   Widget _buildFilterTab(String label, int count, int index) {
     bool isSelected = _selectedFilter == index;
-    return Expanded(
-      child: GestureDetector(
+    return GestureDetector(
         onTap: () => setState(() {
           _selectedFilter = index;
           _currentPage = 1;
         }),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: isSelected
                 ? const Color.fromARGB(255, 0, 0, 0)
@@ -599,6 +618,7 @@ class _LoansScreenState extends State<LoansScreen> {
             ),
           ),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
@@ -612,22 +632,19 @@ class _LoansScreenState extends State<LoansScreen> {
                 ),
               ),
               const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  '$label $count',
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.grey.shade800,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
+              Text(
+                '$label $count',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.grey.shade800,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ],
           ),
         ),
-      ),
     );
   }
 
@@ -1032,10 +1049,10 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
         _cuotas = cuotas;
         _isLoadingCuotas = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = 'No se pudo cargar la tabla de cuotas.';
+        _loadError = e is NoConnectionException ? e.message : 'No se pudo cargar la tabla de cuotas.';
         _isLoadingCuotas = false;
       });
     }
@@ -1082,12 +1099,12 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
       elegibles = await _prestamoService.fetchCuotasElegiblesParaInyeccion(
         prestamoId,
       );
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'No se pudieron cargar las cuotas disponibles. Intenta de nuevo.',
+            e is NoConnectionException ? e.message : 'No se pudieron cargar las cuotas disponibles. Intenta de nuevo.',
           ),
         ),
       );
@@ -1357,13 +1374,10 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                         } on ArgumentError catch (e) {
                           setModalState(() => isSaving = false);
                           setError('${e.message}');
-                        } on MySQLServerException catch (e) {
-                          setModalState(() => isSaving = false);
-                          setError('Error al guardar: ${e.message}');
-                        } catch (_) {
+                        } catch (e) {
                           setModalState(() => isSaving = false);
                           setError(
-                            'No se pudo registrar la inyección de capital. Intenta de nuevo.',
+                            e is NoConnectionException ? e.message : 'No se pudo registrar la inyección de capital. Intenta de nuevo.',
                           );
                         }
                       },
@@ -1469,9 +1483,9 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
-        title: Text(
-          'Detalle de Préstamo: $code',
-          style: const TextStyle(
+        title: const Text(
+          'Detalle de Préstamo',
+          style: TextStyle(
             color: Colors.white,
             fontSize: 16,
             fontWeight: FontWeight.bold,
@@ -1750,8 +1764,9 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
 
               if (status != 'PAGADO') ...[
                 const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
+                Center(
+                  child: SizedBox(
+                  width: MediaQuery.sizeOf(context).width >= 800 ? 640 : null,
                   child: OutlinedButton.icon(
                     onPressed: _isLoadingCuotas
                         ? null
@@ -1767,11 +1782,12 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.black,
                       side: const BorderSide(color: Colors.black),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 28),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
+                  ),
                   ),
                 ),
               ],
@@ -1990,7 +2006,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
               fontWeight: FontWeight.bold,
               color: Colors.black,
             ),
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
         ],
@@ -2118,6 +2134,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   List<Map<String, dynamic>> _clientes = [];
   int? _selectedClienteId;
   bool _isLoadingClientes = true;
+  String? _clientesLoadError;
 
   final List<_MovimientoPlanEntry> _movimientos = [];
 
@@ -2156,6 +2173,10 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   }
 
   Future<void> _loadClientes() async {
+    setState(() {
+      _isLoadingClientes = true;
+      _clientesLoadError = null;
+    });
     try {
       final clientes = await _clienteService.fetchAll();
       if (!mounted) return;
@@ -2163,9 +2184,12 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
         _clientes = clientes.where((c) => c['activo'] == true).toList();
         _isLoadingClientes = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoadingClientes = false);
+      setState(() {
+        _isLoadingClientes = false;
+        _clientesLoadError = e is NoConnectionException ? e.message : 'No se pudieron cargar los clientes.';
+      });
     }
   }
 
@@ -2250,26 +2274,24 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
         ),
       );
       Navigator.pop(context);
-    } on MySQLServerException catch (e) {
+    } on PrestamoCodigoDuplicadoException {
       setState(() => _isSaving = false);
-      final message = e.errorCode == 1062
-          ? 'El código de referencia ya existe, intenta de nuevo'
-          : 'Error al guardar: ${e.message}';
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El código de referencia ya existe, intenta de nuevo')),
+      );
     } on ArgumentError catch (e) {
       setState(() => _isSaving = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Revisa los datos del préstamo: ${e.message}')),
       );
-    } catch (_) {
+    } catch (e) {
       setState(() => _isSaving = false);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo registrar el préstamo. Intenta de nuevo.'),
+        SnackBar(
+          content: Text(e is NoConnectionException ? e.message : 'No se pudo registrar el préstamo. Intenta de nuevo.'),
         ),
       );
     }
@@ -2345,7 +2367,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                       'cliente_${_clientes.length}_$_isLoadingClientes',
                     ),
                     initialValue: _selectedClienteId,
-                    enabled: !_isLoadingClientes,
+                    enabled: !_isLoadingClientes && _clientesLoadError == null,
                     decoration: _inputDecoration(
                       _isLoadingClientes ? 'Cargando clientes...' : 'Cliente',
                       Icons.person_outline,
@@ -2367,6 +2389,23 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                     validator: (value) =>
                         value == null ? 'Selecciona un cliente' : null,
                   ),
+                  if (_clientesLoadError != null) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _clientesLoadError!,
+                            style: TextStyle(fontSize: 11, color: Colors.red.shade700),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _loadClientes,
+                          child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 14),
 
                   CustomDropdown<String>(

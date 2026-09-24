@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mysql_client_plus/exception.dart';
+import '../services/api_client.dart';
 import '../services/cliente_service.dart';
 import '../widgets/custom_dropdown.dart';
 
@@ -48,10 +48,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
         _allClients = clients;
         _isLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = 'No se pudo cargar la lista de clientes. Verifica la conexión con la base de datos.';
+        _loadError = e is NoConnectionException ? e.message : 'No se pudo cargar la lista de clientes.';
         _isLoading = false;
       });
     }
@@ -853,15 +853,12 @@ class _ClientsScreenState extends State<ClientsScreen> {
                           ScaffoldMessenger.of(this.context).showSnackBar(
                             SnackBar(content: Text('Cliente ${nameController.text} registrado con éxito')),
                           );
-                        } on MySQLServerException catch (e) {
-                          final message = e.errorCode == 1062
-                              ? 'Ya existe un cliente con ese documento de identidad'
-                              : 'Error al guardar: ${e.message}';
+                        } on ClienteDuplicadoException {
                           setModalState(() => isSaving = false);
-                          setError(message);
-                        } catch (_) {
+                          setError('Ya existe un cliente con ese documento de identidad');
+                        } catch (e) {
                           setModalState(() => isSaving = false);
-                          setError('No se pudo guardar el cliente. Intenta de nuevo.');
+                          setError(e is NoConnectionException ? e.message : 'No se pudo guardar el cliente. Intenta de nuevo.');
                         }
                       },
                 child: isSaving
@@ -910,10 +907,13 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(isActive ? 'Desactivar Cliente' : 'Activar Cliente'),
-        content: Text(
-          isActive
-              ? '¿Seguro que deseas desactivar a ${client['nombre_cliente']}?'
-              : '¿Deseas reactivar a ${client['nombre_cliente']}?',
+        content: SizedBox(
+          width: 320,
+          child: Text(
+            isActive
+                ? '¿Seguro que deseas desactivar a ${client['nombre_cliente']}?'
+                : '¿Deseas reactivar a ${client['nombre_cliente']}?',
+          ),
         ),
         actions: [
           TextButton(
@@ -951,11 +951,15 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isActive ? 'Cliente desactivado' : 'Cliente activado')),
       );
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _isToggling = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo actualizar el estado del cliente. Intenta de nuevo.')),
+        SnackBar(
+          content: Text(
+            e is NoConnectionException ? e.message : 'No se pudo actualizar el estado del cliente. Intenta de nuevo.',
+          ),
+        ),
       );
     }
   }
@@ -1293,15 +1297,12 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Cliente actualizado con éxito')),
                           );
-                        } on MySQLServerException catch (e) {
-                          final message = e.errorCode == 1062
-                              ? 'Ya existe un cliente con ese documento de identidad'
-                              : 'Error al guardar: ${e.message}';
+                        } on ClienteDuplicadoException {
                           setModalState(() => isSaving = false);
-                          setError(message);
-                        } catch (_) {
+                          setError('Ya existe un cliente con ese documento de identidad');
+                        } catch (e) {
                           setModalState(() => isSaving = false);
-                          setError('No se pudo actualizar el cliente. Intenta de nuevo.');
+                          setError(e is NoConnectionException ? e.message : 'No se pudo actualizar el cliente. Intenta de nuevo.');
                         }
                       },
                 child: isSaving

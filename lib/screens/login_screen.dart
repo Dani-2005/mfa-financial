@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:mysql_client_plus/exception.dart';
 
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 
@@ -125,8 +125,11 @@ class _LoginScreenState extends State<LoginScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Activar huella / Face ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        content: const Text(
-          '¿Quieres usar tu huella o Face ID para entrar más rápido en este dispositivo la próxima vez?',
+        content: const SizedBox(
+          width: 320,
+          child: Text(
+            '¿Quieres usar tu huella o Face ID para entrar más rápido en este dispositivo la próxima vez?',
+          ),
         ),
         actions: [
           TextButton(
@@ -192,9 +195,9 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ArgumentError catch (e) {
       setState(() => _isLoading = false);
       _showError('${e.message}');
-    } on MySQLServerException catch (_) {
+    } on NoConnectionException catch (e) {
       setState(() => _isLoading = false);
-      _showError('No se pudo conectar con la base de datos. Intenta de nuevo.');
+      _showError(e.message);
     } catch (_) {
       setState(() => _isLoading = false);
       _showError('No se pudo iniciar sesión. Intenta de nuevo.');

@@ -1,5 +1,5 @@
 import 'package:mysql_client_plus/mysql_client_plus.dart';
-import '../config/db_config.dart';
+import 'db_config.dart';
 
 class DatabaseService {
   DatabaseService._()
@@ -9,7 +9,7 @@ class DatabaseService {
           userName: DbConfig.user,
           password: DbConfig.password,
           databaseName: DbConfig.database,
-          maxConnections: 5,
+          maxConnections: 10,
         );
 
   static final DatabaseService instance = DatabaseService._();

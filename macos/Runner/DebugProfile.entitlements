@@ -8,5 +8,14 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- Sin esto, el sandbox de macOS bloquea toda conexión de red saliente
+	     de la app (aunque la Mac sí tenga internet), ya que todo pasa por
+	     HTTPS al servidor. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Requerido para que "Guardar PDF" (recibos/reportes) pueda escribir
+	     en la carpeta que el usuario elija en el diálogo de guardado. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>

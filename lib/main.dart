@@ -6,17 +6,13 @@ import 'screens/loans_screen.dart';     // Asegúrate de importar tu pantalla de
 import 'screens/payments_screen.dart'; // O 'screens/payments_screen.dart' dependiendo de dónde guardaste el archivo
 import 'screens/clients_screen.dart'; // Asegúrate de importar tu pantalla de clientes
 import 'screens/audit_reports_screen.dart'; // Asegúrate de importar tu pantalla de auditoría
+import 'services/api_client.dart';
 import 'services/auth_service.dart';
-import 'services/database_service.dart';
 import 'services/session.dart';
 import 'widgets/session_activity_guard.dart';
 
 void main() {
   runApp(const MyApp());
-
-  DatabaseService.instance.testConnection().then((ok) {
-    debugPrint(ok ? '✅ Conexión a MySQL exitosa' : '❌ No se pudo conectar a MySQL');
-  });
 }
 
 class MyApp extends StatelessWidget {
@@ -72,7 +68,9 @@ class _AuthGateState extends State<AuthGate> {
     if (!mounted) return;
     setState(() {
       _authenticated = result.user != null;
-      _sessionNotice = result.sessionEnded ? mensajeSesionFinalizada : null;
+      _sessionNotice = result.sinConexion
+          ? const NoConnectionException().message
+          : (result.sessionEnded ? mensajeSesionFinalizada : null);
       _checkingSession = false;
     });
   }
@@ -309,7 +307,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             builder: (dialogContext) => StatefulBuilder(
               builder: (dialogContext, setDialogState) => AlertDialog(
                 title: const Text('Cerrar Sesión', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                content: Column(
+                content: SizedBox(
+                  width: 320,
+                  child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -335,6 +335,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       ),
                     ],
                   ],
+                  ),
                 ),
                 actions: [
                   TextButton(
@@ -457,14 +458,22 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isActive ? Colors.white : Colors.grey.shade600,
-                    fontSize: 10,
-                    fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                Padding(
+                  // Margen mínimo garantizado fuera del FittedBox: si no se
+                  // reserva aparte, el texto escalado puede llenar toda la
+                  // franja sin dejar espacio y termina tocando al vecino.
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: isActive ? Colors.white : Colors.grey.shade600,
+                        fontSize: 10,
+                        fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
                   ),
                 ),
               ],

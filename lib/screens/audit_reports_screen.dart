@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/api_client.dart';
 import '../services/auditoria_service.dart';
 import '../services/cliente_service.dart';
 import '../services/graficas_service.dart';
@@ -44,6 +45,7 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
   // Filtro específico para préstamos y pagos por cliente
   String _selectedReportClient = 'TODOS';
   List<String> _availableClients = const ['TODOS'];
+  String? _clientesFiltroError;
   // Resuelve la etiqueta mostrada en el filtro ("documento - nombre") de
   // vuelta al cliente_id real, para poder filtrar la consulta del reporte.
   final Map<String, int> _clienteIdPorEtiqueta = {};
@@ -105,6 +107,7 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
   }
 
   Future<void> _loadClientesParaFiltro() async {
+    setState(() => _clientesFiltroError = null);
     try {
       final clientes = await _clienteService.fetchAll();
       if (!mounted) return;
@@ -116,8 +119,13 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
         }
         _availableClients = ['TODOS', ..._clienteIdPorEtiqueta.keys];
       });
-    } catch (_) {
-      // Si falla, el filtro se queda solo con "TODOS"; no bloquea el resto de la pantalla.
+    } catch (e) {
+      // Si falla, el filtro se queda solo con "TODOS"; no bloquea el resto de
+      // la pantalla, pero se avisa para que no parezca que no hay clientes.
+      if (!mounted) return;
+      setState(() {
+        _clientesFiltroError = e is NoConnectionException ? e.message : 'No se pudo cargar el filtro de clientes.';
+      });
     }
   }
 
@@ -145,10 +153,10 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
         _chartsLoaded = true;
         _isLoadingCharts = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _chartsError = 'No se pudieron cargar las gráficas.';
+        _chartsError = e is NoConnectionException ? e.message : 'No se pudieron cargar las gráficas.';
         _isLoadingCharts = false;
       });
     }
@@ -166,10 +174,10 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
         _auditLogs = logs;
         _isLoadingLogs = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadLogsError = 'No se pudo cargar la bitácora de auditoría. Verifica la conexión con la base de datos.';
+        _loadLogsError = e is NoConnectionException ? e.message : 'No se pudo cargar la bitácora de auditoría.';
         _isLoadingLogs = false;
       });
     }
@@ -324,6 +332,7 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
   // SELECTOR DE VISTA
   // ==========================================
   static const _sectionLabels = ['Bitácora de Auditoría', 'Generar Reportes', 'Gráficas'];
+  static const _sectionLabelsCortas = ['Bitácora', 'Reportes', 'Gráficas'];
 
   void _onSectionTap(int index) {
     setState(() => _selectedSection = index);
@@ -351,15 +360,33 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 alignment: Alignment.center,
-                child: Text(
-                  _sectionLabels[index],
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: selected ? Colors.white : Colors.black87,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 11,
-                  ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final style = TextStyle(
+                      color: selected ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    );
+                    final full = _sectionLabels[index];
+                    // Mismo tamaño de letra siempre: si la etiqueta completa
+                    // no entra en esta pestaña (letra grande, pantalla
+                    // angosta), se usa una versión corta en vez de achicar
+                    // la fuente o cortarla con puntos suspensivos.
+                    final painter = TextPainter(
+                      text: TextSpan(text: full, style: style),
+                      textScaler: MediaQuery.textScalerOf(context),
+                      textDirection: TextDirection.ltr,
+                      maxLines: 1,
+                    )..layout();
+                    final cabeCompleta = painter.width <= constraints.maxWidth;
+                    return Text(
+                      cabeCompleta ? full : _sectionLabelsCortas[index],
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: style,
+                    );
+                  },
                 ),
               ),
             ),
@@ -440,16 +467,35 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey.shade200),
                 ),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Buscar por tabla, usuario o ID...',
-                    hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                    prefixIcon: const Icon(Icons.search, size: 20, color: Colors.black),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                  onChanged: (val) => setState(() => _searchQuery = val),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    const hintStyle = TextStyle(fontSize: 12);
+                    const hintFull = 'Buscar tabla, usuario o ID...';
+                    // Mismo tamaño de letra siempre: si el hint completo no
+                    // entra (letra grande, pantalla angosta), se usa una
+                    // versión corta en vez de dejar que se corte solo.
+                    final painter = TextPainter(
+                      text: const TextSpan(text: hintFull, style: hintStyle),
+                      textScaler: MediaQuery.textScalerOf(context),
+                      textDirection: TextDirection.ltr,
+                      maxLines: 1,
+                      // Deja espacio para el ícono de búsqueda y el padding.
+                    )..layout(maxWidth: double.infinity);
+                    final espacioDisponible = constraints.maxWidth - 14 - 20 - 8 - 14;
+                    final cabeCompleto = painter.width <= espacioDisponible;
+                    return TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: cabeCompleto ? hintFull : 'Buscar...',
+                        hintMaxLines: 1,
+                        hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                        prefixIcon: const Icon(Icons.search, size: 20, color: Colors.black),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                      onChanged: (val) => setState(() => _searchQuery = val),
+                    );
+                  },
                 ),
               ),
             ),
@@ -763,6 +809,7 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
                 const SizedBox(height: 10),
                 CustomDropdown<String>(
                   initialValue: _selectedReportClient,
+                  enabled: _clientesFiltroError == null,
                   decoration: InputDecoration(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
@@ -777,6 +824,20 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
                     if (val != null) setState(() => _selectedReportClient = val);
                   },
                 ),
+                if (_clientesFiltroError != null) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(_clientesFiltroError!, style: TextStyle(fontSize: 11, color: Colors.red.shade700)),
+                      ),
+                      TextButton(
+                        onPressed: _loadClientesParaFiltro,
+                        child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),

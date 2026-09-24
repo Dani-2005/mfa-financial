@@ -4,6 +4,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
+import '../services/api_client.dart';
+
 /// Diálogo "¿Qué acción desea realizar con este PDF?" con Imprimir/Descargar,
 /// reutilizado por los recibos de pago y los reportes de Auditoría. Genera
 /// el PDF de forma perezosa (solo cuando el usuario elige una acción) para
@@ -30,11 +32,11 @@ Future<void> showPdfActionsDialog(
               await Printing.layoutPdf(onLayout: (_) async => bytes);
               if (!context.mounted) return;
               Navigator.pop(context);
-            } catch (_) {
+            } catch (e) {
               setModalState(() => isProcessing = false);
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('No se pudo generar el PDF. Intenta de nuevo.')),
+                SnackBar(content: Text(e is NoConnectionException ? e.message : 'No se pudo generar el PDF. Intenta de nuevo.')),
               );
             }
           }
@@ -58,11 +60,11 @@ Future<void> showPdfActionsDialog(
               }
               if (!context.mounted) return;
               Navigator.pop(context);
-            } catch (_) {
+            } catch (e) {
               setModalState(() => isProcessing = false);
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('No se pudo guardar el PDF. Intenta de nuevo.')),
+                SnackBar(content: Text(e is NoConnectionException ? e.message : 'No se pudo guardar el PDF. Intenta de nuevo.')),
               );
             }
           }

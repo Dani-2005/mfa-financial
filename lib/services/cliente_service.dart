@@ -1,19 +1,24 @@
-import 'auditoria_service.dart';
-import 'database_service.dart';
+import 'api_client.dart';
+import 'auth_service.dart';
 
+/// Se lanza cuando el servidor rechaza un alta/edición de cliente porque ya
+/// existe otro cliente con el mismo documento de identidad (columna única).
+class ClienteDuplicadoException implements Exception {}
+
+/// Igual que antes en su interfaz pública, pero por dentro ya no habla
+/// directo con MySQL: llama al servidor MAF API en el VPS.
 class ClienteService {
-  final AuditoriaService _auditoria = AuditoriaService();
+  Future<Map<String, String>> _headers() async {
+    final headers = await AuthService.instance.authHeaders();
+    if (headers == null) throw StateError('No hay una sesión activa.');
+    return headers;
+  }
 
   Future<List<Map<String, dynamic>>> fetchAll() async {
-    final result = await DatabaseService.instance.query(
-      'SELECT c.*, '
-      '(SELECT COUNT(*) FROM prestamos p WHERE p.cliente_id = c.cliente_id '
-      "AND p.activo = TRUE AND p.estado NOT IN ('Pagado', 'Anulado')) AS prestamos_activos "
-      'FROM clientes c '
-      'ORDER BY c.created_at DESC',
-    );
-
-    return result.rows.map((row) => row.typedAssoc()).toList();
+    final response = await ApiClient.instance.get('/api/clientes/', headers: await _headers());
+    if (!response.ok) throw StateError('No se pudieron cargar los clientes.');
+    final lista = response.data['clientes'] as List;
+    return lista.cast<Map<String, dynamic>>();
   }
 
   Future<void> create({
@@ -25,35 +30,23 @@ class ClienteService {
     String? telefono,
     String? direccion,
   }) async {
-    await DatabaseService.instance.query(
-      'INSERT INTO clientes '
-      '(documento_identidad, tipo_cliente, nombre_cliente, representante, correo, telefono, direccion) '
-      'VALUES (:documento, :tipo, :nombre, :representante, :correo, :telefono, :direccion)',
-      {
-        'documento': documentoIdentidad,
-        'tipo': tipoCliente,
-        'nombre': nombreCliente,
+    final response = await ApiClient.instance.post(
+      '/api/clientes/',
+      headers: await _headers(),
+      body: {
+        'documentoIdentidad': documentoIdentidad,
+        'tipoCliente': tipoCliente,
+        'nombreCliente': nombreCliente,
         'representante': representante,
         'correo': correo,
         'telefono': telefono,
         'direccion': direccion,
       },
     );
-
-    await _auditoria.log(
-      tablaAfectada: 'clientes',
-      registroId: documentoIdentidad,
-      accion: 'INSERT',
-      datosNuevos: {
-        'documento_identidad': documentoIdentidad,
-        'tipo_cliente': tipoCliente,
-        'nombre_cliente': nombreCliente,
-        'representante': representante,
-        'correo': correo,
-        'telefono': telefono,
-        'direccion': direccion,
-      },
-    );
+    if (!response.ok) {
+      if (response.data['error'] == 'duplicate_documento') throw ClienteDuplicadoException();
+      throw StateError('No se pudo guardar el cliente.');
+    }
   }
 
   Future<void> update({
@@ -68,38 +61,25 @@ class ClienteService {
     String? direccion,
     required Map<String, dynamic> datosAnteriores,
   }) async {
-    await DatabaseService.instance.query(
-      'UPDATE clientes SET '
-      'documento_identidad = :documento, tipo_cliente = :tipo, nombre_cliente = :nombre, '
-      'representante = :representante, correo = :correo, telefono = :telefono, direccion = :direccion '
-      'WHERE cliente_id = :id',
-      {
-        'documento': documentoIdentidad,
-        'tipo': tipoCliente,
-        'nombre': nombreCliente,
+    final response = await ApiClient.instance.put(
+      '/api/clientes/$clienteId',
+      headers: await _headers(),
+      body: {
+        'registroIdAuditoria': registroIdAuditoria,
+        'documentoIdentidad': documentoIdentidad,
+        'tipoCliente': tipoCliente,
+        'nombreCliente': nombreCliente,
         'representante': representante,
         'correo': correo,
         'telefono': telefono,
         'direccion': direccion,
-        'id': clienteId,
+        'datosAnteriores': datosAnteriores,
       },
     );
-
-    await _auditoria.log(
-      tablaAfectada: 'clientes',
-      registroId: registroIdAuditoria,
-      accion: 'UPDATE',
-      datosAnteriores: datosAnteriores,
-      datosNuevos: {
-        'documento_identidad': documentoIdentidad,
-        'tipo_cliente': tipoCliente,
-        'nombre_cliente': nombreCliente,
-        'representante': representante,
-        'correo': correo,
-        'telefono': telefono,
-        'direccion': direccion,
-      },
-    );
+    if (!response.ok) {
+      if (response.data['error'] == 'duplicate_documento') throw ClienteDuplicadoException();
+      throw StateError('No se pudo actualizar el cliente.');
+    }
   }
 
   Future<void> setActivo({
@@ -107,17 +87,11 @@ class ClienteService {
     required String documentoIdentidad,
     required bool activo,
   }) async {
-    await DatabaseService.instance.query(
-      'UPDATE clientes SET activo = :activo WHERE cliente_id = :id',
-      {'activo': activo, 'id': clienteId},
+    final response = await ApiClient.instance.post(
+      '/api/clientes/$clienteId/activo',
+      headers: await _headers(),
+      body: {'documentoIdentidad': documentoIdentidad, 'activo': activo},
     );
-
-    await _auditoria.log(
-      tablaAfectada: 'clientes',
-      registroId: documentoIdentidad,
-      accion: activo ? 'UPDATE' : 'DESACTIVAR',
-      datosAnteriores: {'activo': !activo},
-      datosNuevos: {'activo': activo},
-    );
+    if (!response.ok) throw StateError('No se pudo cambiar el estado del cliente.');
   }
 }

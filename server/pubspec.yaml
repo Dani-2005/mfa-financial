@@ -1,0 +1,17 @@
+name: maf_api_server
+description: Servidor API para MAF Financial. Corre en el VPS, habla con MySQL en localhost, y expone endpoints HTTP para que la app Flutter deje de conectarse directo a la base de datos.
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  shelf: ^1.4.2
+  shelf_router: ^1.1.4
+  mysql_client_plus: ^0.1.3
+  bcrypt: ^1.2.0
+  crypto: ^3.0.7
+
+dev_dependencies:
+  lints: ^5.0.0

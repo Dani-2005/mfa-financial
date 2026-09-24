@@ -1,0 +1,10 @@
+// Copia este archivo como db_config.dart (sin ".example") y pon ahí las
+// credenciales reales del servidor MySQL. Ese archivo NO se sube al repo
+// (está en .gitignore) porque contiene la contraseña real de producción.
+class DbConfig {
+  static const String host = 'localhost';
+  static const int port = 3306;
+  static const String user = 'maf_app';
+  static const String password = 'CAMBIA_ESTO_POR_LA_CONTRASEÑA_REAL';
+  static const String database = 'sinergyHousePrestamos';
+}
