@@ -46,6 +46,18 @@ class PrestamoService {
     return (response.data['cuotas'] as List).cast<Map<String, dynamic>>();
   }
 
+  /// Datos completos de un préstamo (cambio de tasa programado, operación
+  /// por fases, cliente, frecuencia, etc.) — usado para el encabezado del
+  /// PDF del plan de pagos.
+  Future<Map<String, dynamic>> fetchDetalle(int prestamoId) async {
+    final response = await ApiClient.instance.get(
+      '/api/prestamos/$prestamoId/detalle',
+      headers: await _headers(),
+    );
+    if (!response.ok) _throwError(response, 'No se pudo cargar el detalle del préstamo.');
+    return response.data;
+  }
+
   Future<List<Map<String, dynamic>>> fetchAll() async {
     final response = await ApiClient.instance.get('/api/prestamos/', headers: await _headers());
     if (!response.ok) throw StateError('No se pudieron cargar los préstamos.');

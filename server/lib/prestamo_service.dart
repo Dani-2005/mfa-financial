@@ -195,6 +195,44 @@ class PrestamoService {
     }).toList();
   }
 
+  /// Trae los datos completos de un préstamo (más allá de lo que ya
+  /// muestra la tarjeta del listado): si tiene cambio de tasa programado,
+  /// si es una operación por fases, cliente, frecuencia, etc. — usado para
+  /// el encabezado del PDF del plan de pagos.
+  Future<Map<String, dynamic>> fetchDetalle(int prestamoId) async {
+    final result = await DatabaseService.instance.query(
+      'SELECT p.codigo_referencia, p.tipo_tasa, p.tipo_calculo, p.capital_inicial, '
+      'p.tasa_interes_mensual, p.mes_cambio_tasa, p.nueva_tasa_interes, '
+      'p.mes_cambio_capitalizacion, p.frecuencia_pago, p.fecha_inicio, p.numero_cuotas, '
+      'p.estado, p.activo, c.nombre_cliente, c.documento_identidad '
+      'FROM prestamos p JOIN clientes c ON c.cliente_id = p.cliente_id '
+      'WHERE p.prestamo_id = :id',
+      {'id': prestamoId},
+    );
+    if (result.rows.isEmpty) {
+      throw ArgumentError.value(prestamoId, 'prestamoId', 'El préstamo no existe');
+    }
+    final f = result.rows.first.typedAssoc();
+    final nuevaTasa = f['nueva_tasa_interes'];
+    return {
+      'codigoReferencia': f['codigo_referencia'],
+      'clienteNombre': f['nombre_cliente'],
+      'clienteDocumento': f['documento_identidad'],
+      'tipoTasa': f['tipo_tasa'],
+      'tipoCalculo': f['tipo_calculo'],
+      'capitalInicial': _formatMoney(_toDouble(f['capital_inicial'])),
+      'tasaInteresMensual': '${_toDouble(f['tasa_interes_mensual']).toStringAsFixed(1)}%',
+      'mesCambioTasa': f['mes_cambio_tasa'],
+      'nuevaTasaInteres': nuevaTasa == null ? null : '${_toDouble(nuevaTasa).toStringAsFixed(1)}%',
+      'mesCambioCapitalizacion': f['mes_cambio_capitalizacion'],
+      'frecuenciaPago': f['frecuencia_pago'],
+      'fechaInicio': _formatDateDisplay(f['fecha_inicio'] as DateTime),
+      'numeroCuotas': f['numero_cuotas'],
+      'estado': f['estado'],
+      'activo': f['activo'],
+    };
+  }
+
   double _toDouble(dynamic value) {
     if (value is num) return value.toDouble();
     return double.parse(value as String);
@@ -207,10 +245,10 @@ class PrestamoService {
     final intPart = parts[0];
     final buffer = StringBuffer();
     for (int i = 0; i < intPart.length; i++) {
-      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write(',');
+      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write('.');
       buffer.write(intPart[i]);
     }
-    return '${isNegative ? '-' : ''}\$${buffer.toString()}.${parts[1]}';
+    return '${isNegative ? '-' : ''}\$${buffer.toString()},${parts[1]}';
   }
 
   String _formatDateDisplay(DateTime date) {
@@ -608,7 +646,7 @@ class PrestamoService {
 
     if (monto > saldoActual) {
       throw ArgumentError(
-        'No puedes abonar más de lo que se debe actualmente (\$${saldoActual.toStringAsFixed(2)}).',
+        'No puedes abonar más de lo que se debe actualmente (${_formatMoney(saldoActual)}).',
       );
     }
     final nuevoSaldo = saldoActual - monto;

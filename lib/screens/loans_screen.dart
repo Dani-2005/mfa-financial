@@ -6,8 +6,11 @@ import 'package:flutter/services.dart';
 import '../services/api_client.dart';
 import '../services/cliente_service.dart';
 import '../services/loan_calculator.dart';
+import '../services/plan_pagos_pdf_service.dart';
 import '../services/prestamo_service.dart';
 import '../widgets/custom_dropdown.dart';
+import '../widgets/money_input_formatter.dart';
+import '../widgets/pdf_actions_dialog.dart';
 
 class LoansScreen extends StatefulWidget {
   const LoansScreen({super.key});
@@ -1081,10 +1084,44 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     final intPart = parts[0];
     final buffer = StringBuffer();
     for (int i = 0; i < intPart.length; i++) {
-      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write(',');
+      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write('.');
       buffer.write(intPart[i]);
     }
-    return '${isNegative ? '-' : ''}\$${buffer.toString()}.${parts[1]}';
+    return '${isNegative ? '-' : ''}\$${buffer.toString()},${parts[1]}';
+  }
+
+  /// Genera el PDF del plan de pagos completo de este préstamo: encabezado
+  /// con los datos del préstamo, la tabla de cuotas y los movimientos de
+  /// capital. Reutiliza `_cuotas`/`_movimientosCapital` ya cargados en la
+  /// pantalla; solo pide al servidor los datos que le faltan (cliente,
+  /// cambio de tasa, operación por fases).
+  Future<Uint8List> _generarPdfPlanPagos() async {
+    final detalle = await _prestamoService.fetchDetalle(widget.loan['prestamo_id'] as int);
+    return PlanPagosPdfService.generar(
+      detalle: detalle,
+      cuotas: _cuotas,
+      movimientos: _movimientosCapital,
+    );
+  }
+
+  void _showPlanPagosPdfModal() {
+    showPdfActionsDialog(
+      context,
+      titulo: 'Plan de Pagos — Préstamo #${_loan['code']}',
+      nombreArchivo: 'plan_pagos_${_loan['code']}.pdf',
+      generarPdf: _generarPdfPlanPagos,
+      infoContent: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Cliente: ${_loan['name']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          const SizedBox(height: 4),
+          Text(
+            'Incluye la tabla de cuotas completa y los movimientos de capital.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Abre el diálogo de "Inyectar Capital": el prestamista elige a partir
@@ -1277,9 +1314,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                      ],
+                      inputFormatters: [MoneyInputFormatter()],
                       decoration: InputDecoration(
                         labelText: 'Monto a Inyectar (\$)',
                         prefixIcon: const Icon(
@@ -1330,7 +1365,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                 onPressed: isSaving
                     ? null
                     : () async {
-                        final monto = double.tryParse(
+                        final monto = MoneyInputFormatter.parse(
                           montoController.text.trim(),
                         );
                         if (monto == null || monto <= 0) {
@@ -1762,35 +1797,63 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                 ),
               ),
 
-              if (status != 'PAGADO') ...[
-                const SizedBox(height: 14),
-                Center(
-                  child: SizedBox(
-                  width: MediaQuery.sizeOf(context).width >= 800 ? 640 : null,
-                  child: OutlinedButton.icon(
-                    onPressed: _isLoadingCuotas
-                        ? null
-                        : _showInyectarCapitalModal,
-                    icon: const Icon(Icons.add_circle_outline, size: 18),
-                    label: const Text(
-                      'Inyectar Capital',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
+              const SizedBox(height: 14),
+              Center(
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    if (status != 'PAGADO')
+                      SizedBox(
+                        width: MediaQuery.sizeOf(context).width >= 800 ? 300 : null,
+                        child: OutlinedButton.icon(
+                          onPressed: _isLoadingCuotas
+                              ? null
+                              : _showInyectarCapitalModal,
+                          icon: const Icon(Icons.add_circle_outline, size: 18),
+                          label: const Text(
+                            'Inyectar Capital',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.black,
+                            side: const BorderSide(color: Colors.black),
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 28),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    SizedBox(
+                      width: MediaQuery.sizeOf(context).width >= 800 ? 300 : null,
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoadingCuotas ? null : _showPlanPagosPdfModal,
+                        icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                        label: const Text(
+                          'Plan de Pagos (PDF)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.black,
+                          side: const BorderSide(color: Colors.black),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 28),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
                       ),
                     ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.black,
-                      side: const BorderSide(color: Colors.black),
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 28),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
               const SizedBox(height: 20),
 
               // 2. TABLA DE CUOTAS (PLAN DE PAGOS) - CENTRADA
@@ -1807,6 +1870,31 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                 'Desglosa los periodos de cobro, intereses generados y capital amortizado.',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade800),
               ),
+              if (_cuotas.any((c) => c['capitalizado'] == 'Sí')) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.amber.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: Colors.amber.shade900),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Las cuotas con Capitalizado = "Sí" salen como "Pagado" aunque el cliente no las pagó: '
+                          'el interés se reinvierte automáticamente en el saldo en vez de cobrarse.',
+                          style: TextStyle(fontSize: 11, color: Colors.amber.shade900, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
 
               if (_isLoadingCuotas)
@@ -2241,7 +2329,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
           (m) => MovimientoCapitalPlanificado(
             periodoDesde: int.parse(m.periodoController.text),
             esInyeccion: m.tipo == 'Inyeccion',
-            monto: double.parse(m.montoController.text),
+            monto: MoneyInputFormatter.parse(m.montoController.text)!,
           ),
         )
         .toList();
@@ -2252,7 +2340,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
         clienteId: _selectedClienteId!,
         tipoTasa: _selectedTipoTasa,
         tipoCalculo: _selectedTipoCalculo,
-        capitalInicial: double.parse(_amountController.text),
+        capitalInicial: MoneyInputFormatter.parse(_amountController.text)!,
         tasaInteresMensual: double.parse(_interestController.text),
         mesCambioTasa: esVariable ? int.parse(_mesCambioController.text) : null,
         nuevaTasaInteres: esVariable
@@ -2465,9 +2553,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                    ],
+                    inputFormatters: [MoneyInputFormatter()],
                     decoration: _inputDecoration(
                       'Capital Inicial (\$)',
                       Icons.attach_money,
@@ -2476,7 +2562,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                       if (value == null || value.isEmpty) {
                         return 'Ingrese el monto inicial';
                       }
-                      if (double.tryParse(value) == null) {
+                      if (MoneyInputFormatter.parse(value) == null) {
                         return 'Ingrese un número válido';
                       }
                       return null;
@@ -2833,11 +2919,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp(r'[0-9.]'),
-                              ),
-                            ],
+                            inputFormatters: [MoneyInputFormatter()],
                             decoration: _inputDecoration(
                               'Monto (\$)',
                               Icons.attach_money,
@@ -2846,7 +2928,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                               if (value == null || value.isEmpty) {
                                 return 'Ingrese el monto';
                               }
-                              final monto = double.tryParse(value);
+                              final monto = MoneyInputFormatter.parse(value);
                               if (monto == null || monto <= 0) {
                                 return 'Ingrese un monto mayor a 0';
                               }

@@ -384,10 +384,10 @@ class PagoService {
     final intPart = parts[0];
     final buffer = StringBuffer();
     for (int i = 0; i < intPart.length; i++) {
-      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write(',');
+      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write('.');
       buffer.write(intPart[i]);
     }
-    return '${isNegative ? '-' : ''}\$${buffer.toString()}.${parts[1]}';
+    return '${isNegative ? '-' : ''}\$${buffer.toString()},${parts[1]}';
   }
 
   String _formatDateDisplay(DateTime date) {

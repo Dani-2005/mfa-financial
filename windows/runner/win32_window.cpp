@@ -150,7 +150,13 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  // Se abre maximizada desde el primer frame que se muestra. Hacerlo aquí
+  // (en la misma llamada que ya revela la ventana tras el primer frame de
+  // Flutter) evita la carrera de repintado que aparece si se maximiza desde
+  // Dart después de que la ventana ya se mostró en tamaño normal: el estado
+  // de Windows queda como maximizado pero el contenido no se repinta hasta
+  // un evento posterior (p. ej. un clic manual en el botón de maximizar).
+  return ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
 }
 
 // static

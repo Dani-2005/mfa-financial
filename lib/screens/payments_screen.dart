@@ -8,6 +8,7 @@ import '../services/pago_service.dart';
 import '../services/prestamo_service.dart';
 import '../services/recibo_pdf_service.dart';
 import '../widgets/custom_dropdown.dart';
+import '../widgets/money_input_formatter.dart';
 import '../widgets/pdf_actions_dialog.dart';
 
 /// Datos para abrir "Registrar Pago" con la cuota ya elegida de antemano
@@ -704,6 +705,21 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
   Timer? _errorTimer;
   final ScrollController _scrollController = ScrollController();
 
+  /// Formato "$1.234.567,89": punto como separador de miles, coma como
+  /// decimal — misma convención que usa el resto de la app.
+  String _formatMoney(double value) {
+    final isNegative = value < 0;
+    final fixed = value.abs().toStringAsFixed(2);
+    final parts = fixed.split('.');
+    final intPart = parts[0];
+    final buffer = StringBuffer();
+    for (int i = 0; i < intPart.length; i++) {
+      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write('.');
+      buffer.write(intPart[i]);
+    }
+    return '${isNegative ? '-' : ''}\$${buffer.toString()},${parts[1]}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -836,9 +852,9 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
         _saldoInfo = saldo;
         _isLoadingSaldo = false;
         if (_tipoMovimiento == 'Liquidacion_Total') {
-          _amountController.text = saldoActual.toStringAsFixed(2);
+          _amountController.text = MoneyInputFormatter.format(saldoActual);
           _conceptController.text = 'Liquidación total del préstamo #${prestamo['codigo_referencia']}. '
-              'Paga el saldo total de \$${saldoActual.toStringAsFixed(2)} y finaliza el préstamo.';
+              'Paga el saldo total de ${_formatMoney(saldoActual)} y finaliza el préstamo.';
         } else {
           _conceptController.text = 'Abono a capital del préstamo #${prestamo['codigo_referencia']}.';
         }
@@ -884,9 +900,9 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
         // blanco para que no confirme por error el monto completo.
         _amountController.clear();
         _conceptController.text = 'Pago parcial de la cuota ${cuota['numeroPeriodo']} de ${cuota['numeroCuotas']} '
-            'del préstamo #${prestamo['codigo_referencia']} (falta \$${montoRestante.toStringAsFixed(2)}).';
+            'del préstamo #${prestamo['codigo_referencia']} (falta ${_formatMoney(montoRestante)}).';
       } else {
-        _amountController.text = montoRestante.toStringAsFixed(2);
+        _amountController.text = MoneyInputFormatter.format(montoRestante);
         _conceptController.text = 'Pago de la cuota ${cuota['numeroPeriodo']} de ${cuota['numeroCuotas']} '
             'del préstamo #${prestamo['codigo_referencia']}.';
       }
@@ -920,7 +936,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
 
     double? monto;
     if (_tipoMovimiento != 'Liquidacion_Total') {
-      monto = double.tryParse(_amountController.text);
+      monto = MoneyInputFormatter.parse(_amountController.text);
       if (monto == null || monto <= 0) {
         _snack('Ingresa un monto válido');
         return;
@@ -1184,7 +1200,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                       .map((c) => CustomDropdownItem<int>(
                             value: c['cuota_id'] as int,
                             label: 'Cuota ${c['numeroPeriodo']} de ${c['numeroCuotas']} — Vence ${c['fechaVencimiento']}'
-                                '${c['estado'] == 'Parcial' ? ' (Parcial, falta \$${(c['montoSugerido'] as double).toStringAsFixed(2)})' : ''}',
+                                '${c['estado'] == 'Parcial' ? ' (Parcial, falta ${_formatMoney(c['montoSugerido'] as double)})' : ''}',
                           ))
                       .toList(),
                   onChanged: _onCuotaChanged,
@@ -1222,7 +1238,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                         border: Border.all(color: Colors.amber.shade200),
                       ),
                       child: Text(
-                        'Falta \$${restante.toStringAsFixed(2)} de esta cuota. Ingresa un monto menor a ese '
+                        'Falta ${_formatMoney(restante)} de esta cuota. Ingresa un monto menor a ese '
                         'para dejarla en "Parcial"; si vas a cubrir todo lo que falta, usa "Cuota Ordinaria".',
                         style: TextStyle(fontSize: 11, color: Colors.amber.shade900),
                       ),
@@ -1246,8 +1262,8 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                     ),
                     child: Text(
                       _tipoMovimiento == 'Liquidacion_Total'
-                          ? 'Saldo total adeudado: \$${(_saldoInfo!['saldoActual'] as double).toStringAsFixed(2)}'
-                          : 'Saldo actual: \$${(_saldoInfo!['saldoActual'] as double).toStringAsFixed(2)}'
+                          ? 'Saldo total adeudado: ${_formatMoney(_saldoInfo!['saldoActual'] as double)}'
+                          : 'Saldo actual: ${_formatMoney(_saldoInfo!['saldoActual'] as double)}'
                               '${_saldoInfo!['periodoInicial'] != null ? ' — se aplicará a partir de la cuota ${_saldoInfo!['periodoInicial']}' : ''}',
                       style: const TextStyle(fontSize: 12, color: Colors.black87),
                     ),
@@ -1263,7 +1279,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                 controller: _amountController,
                 readOnly: _tipoMovimiento == 'Liquidacion_Total' || _tipoMovimiento == 'Cuota_Ordinaria',
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
+                inputFormatters: [MoneyInputFormatter()],
                 decoration: InputDecoration(
                   labelText: _tipoMovimiento == 'Abono_Capital'
                       ? 'Monto a Abonar (\$)'

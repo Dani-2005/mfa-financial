@@ -116,7 +116,7 @@ class LoanCalculator {
         if (saldo < 0) {
           throw ArgumentError(
             'El retiro de capital planificado en la cuota $periodo deja el saldo en negativo '
-            '(${saldo.toStringAsFixed(2)}). No puede retirarse más de lo disponible en ese momento.',
+            '(${saldo.toStringAsFixed(2).replaceFirst('.', ',')}). No puede retirarse más de lo disponible en ese momento.',
           );
         }
       }
@@ -194,7 +194,7 @@ class LoanCalculator {
         saldo += ajuste;
         if (saldo < 0) {
           throw ArgumentError(
-            'Un movimiento de capital en la cuota $periodo deja el saldo en negativo (${saldo.toStringAsFixed(2)}).',
+            'Un movimiento de capital en la cuota $periodo deja el saldo en negativo (${saldo.toStringAsFixed(2).replaceFirst('.', ',')}).',
           );
         }
       }

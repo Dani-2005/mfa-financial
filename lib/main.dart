@@ -1,4 +1,8 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 import 'screens/change_password_dialog.dart';
 import 'screens/dashboard_screen.dart'; // Asegúrate de importar tu dashboard
 import 'screens/login_screen.dart';
@@ -11,8 +15,23 @@ import 'services/auth_service.dart';
 import 'services/session.dart';
 import 'widgets/session_activity_guard.dart';
 
-void main() {
+// En Windows (windows/runner/win32_window.cpp, Show()) y en macOS
+// (macos/Runner/MainFlutterWindow.swift, awakeFromNib()) la ventana ya se
+// abre ocupando toda la pantalla a nivel nativo, lo que evita una carrera de
+// repintado que ocurría al maximizar desde Dart después de mostrar la
+// ventana. En Linux no existe ese ajuste nativo, así que se usa
+// window_manager como respaldo.
+bool get _usaWindowManager => !kIsWeb && Platform.isLinux;
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (_usaWindowManager) {
+    await windowManager.ensureInitialized();
+  }
   runApp(const MyApp());
+  if (_usaWindowManager) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => windowManager.maximize());
+  }
 }
 
 class MyApp extends StatelessWidget {
