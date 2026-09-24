@@ -52,13 +52,37 @@ class ApiClient {
     context.setTrustedCertificatesBytes(certData.buffer.asUint8List());
 
     final client = HttpClient(context: context);
-    // La validación normal ya solo confía en el certificado anclado arriba;
-    // este callback solo se invoca si esa validación falla, así que
-    // siempre se rechaza (nunca se acepta un certificado no anclado).
-    client.badCertificateCallback = (cert, host, port) => false;
+    // En Windows/Android la validación normal ya acepta el certificado
+    // anclado. En macOS/iOS, en cambio, dart:io valida con el sistema de
+    // Apple, que rechaza certificados autofirmados con vigencia mayor a 825
+    // días o sin "serverAuth" aunque estén anclados — y el nuestro tiene
+    // ambas cosas. Por eso aquí se acepta el certificado SOLO si es
+    // exactamente el anclado (byte por byte) y viene del host esperado;
+    // cualquier otro se sigue rechazando.
+    final pinnedDer = _pemToDer(utf8.decode(certData.buffer.asUint8List()));
+    final expectedHost = Uri.parse(baseUrl).host;
+    client.badCertificateCallback =
+        (cert, host, port) => host == expectedHost && _bytesIguales(cert.der, pinnedDer);
     client.connectionTimeout = const Duration(seconds: 15);
     _client = client;
     return client;
+  }
+
+  static List<int> _pemToDer(String pem) {
+    final base64Body = pem
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty && !line.startsWith('-----'))
+        .join();
+    return base64.decode(base64Body);
+  }
+
+  static bool _bytesIguales(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   Future<ApiResponse> get(String path, {Map<String, String>? headers}) => _conManejoDeConexion(() async {
@@ -125,3 +149,4 @@ class ApiClient {
     return ApiResponse(response.statusCode, data);
   }
 }
+
