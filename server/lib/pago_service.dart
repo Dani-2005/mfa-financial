@@ -13,7 +13,7 @@ class PagoService {
     final result = await DatabaseService.instance.query(
       'SELECT r.codigo_recibo, r.fecha_emision, r.monto_total_pagado, r.descripcion_concepto, '
       'r.metodo_pago, r.referencia, r.activo, r.tipo_movimiento, '
-      'cu.numero_periodo, p.numero_cuotas, p.codigo_referencia, cl.nombre_cliente '
+      'cu.numero_periodo, p.numero_cuotas, p.codigo_referencia, cl.cliente_id, cl.nombre_cliente '
       'FROM recibos_pagos r '
       'JOIN prestamos p ON p.prestamo_id = r.prestamo_id '
       'JOIN clientes cl ON cl.cliente_id = p.cliente_id '
@@ -44,6 +44,9 @@ class PagoService {
       return {
         'codigo_recibo': f['codigo_recibo'],
         'cliente': f['nombre_cliente'],
+        // Para los filtros por cliente y por préstamo del Historial de Pagos.
+        'cliente_id': f['cliente_id'],
+        'prestamo_codigo': f['codigo_referencia'],
         'cuota': cuotaTexto,
         'tipoMovimiento': tipoMovimiento,
         'fecha_emision': _formatDateDisplay(fecha),

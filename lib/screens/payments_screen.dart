@@ -41,9 +41,15 @@ class PaymentsScreen extends StatefulWidget {
 class _PaymentsScreenState extends State<PaymentsScreen> {
   final PagoService _pagoService = PagoService();
 
-  // Filtros de Fecha (por defecto, el mes/año actual)
+  // Filtros de Fecha (por defecto, el mes/año actual). 0 = "Todos".
   int _selectedYear = DateTime.now().year;
   int _selectedMonth = DateTime.now().month;
+
+  // Filtros por cliente y por préstamo (null = "Todos"). Las opciones salen
+  // de los propios pagos cargados, así que solo aparecen clientes/préstamos
+  // que tienen al menos un pago.
+  int? _selectedClienteId;
+  String? _selectedPrestamo;
   int _currentPage = 1;
   final int _itemsPerPage = 5;
 
@@ -268,7 +274,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       );
     } else {
       final filteredPayments = _allPayments.where((p) {
-        return p['anio'] == _selectedYear && p['mes'] == _selectedMonth;
+        return (_selectedYear == 0 || p['anio'] == _selectedYear) &&
+            (_selectedMonth == 0 || p['mes'] == _selectedMonth) &&
+            (_selectedClienteId == null || p['cliente_id'] == _selectedClienteId) &&
+            (_selectedPrestamo == null || p['prestamo_codigo'] == _selectedPrestamo);
       }).toList();
 
       int totalPages = (filteredPayments.length / _itemsPerPage).ceil();
@@ -316,7 +325,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Período: ${_months[_selectedMonth - 1]} $_selectedYear', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.black), maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text('Período: $_periodoLabel', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.black), maxLines: 2, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 2),
               Text('Respaldo financiero y contable', style: TextStyle(color: Colors.grey.shade800, fontSize: 11, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
             ],
@@ -338,7 +347,37 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     );
   }
 
+  String get _periodoLabel {
+    if (_selectedMonth == 0 && _selectedYear == 0) return 'Todos los períodos';
+    if (_selectedMonth == 0) return 'Todo $_selectedYear';
+    if (_selectedYear == 0) return '${_months[_selectedMonth - 1]} (todos los años)';
+    return '${_months[_selectedMonth - 1]} $_selectedYear';
+  }
+
+  InputDecoration _filterDecoration(String label, IconData icon) => InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.black, size: 20),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      );
+
   Widget _buildFilterBar() {
+    // Clientes y préstamos que aparecen en los pagos cargados. Si hay un
+    // cliente elegido, el filtro de préstamo solo ofrece los de ese cliente.
+    final clientes = <int, String>{};
+    final prestamos = <String>{};
+    for (final p in _allPayments) {
+      final clienteId = p['cliente_id'] as int?;
+      if (clienteId != null) clientes[clienteId] = p['cliente'] as String;
+      final codigo = p['prestamo_codigo'] as String?;
+      if (codigo != null && (_selectedClienteId == null || clienteId == _selectedClienteId)) {
+        prestamos.add(codigo);
+      }
+    }
+    final clientesOrdenados = clientes.entries.toList()
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+    final prestamosOrdenados = prestamos.toList()..sort();
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -347,48 +386,89 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2))],
       ),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: CustomDropdown<int>(
-              initialValue: _selectedMonth,
-              decoration: InputDecoration(
-                labelText: 'Mes',
-                prefixIcon: const Icon(Icons.calendar_month, color: Colors.black, size: 20),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          Row(
+            children: [
+              Expanded(
+                child: CustomDropdown<int>(
+                  initialValue: _selectedMonth,
+                  decoration: _filterDecoration('Mes', Icons.calendar_month),
+                  items: [
+                    const CustomDropdownItem(value: 0, label: 'Todos'),
+                    ...List.generate(12, (index) => index + 1)
+                        .map((m) => CustomDropdownItem(value: m, label: _months[m - 1])),
+                  ],
+                  onChanged: (val) {
+                    setState(() {
+                      _selectedMonth = val!;
+                      _currentPage = 1;
+                    });
+                  },
+                ),
               ),
-              items: List.generate(12, (index) => index + 1)
-                  .map((m) => CustomDropdownItem(value: m, label: _months[m - 1]))
-                  .toList(),
-              onChanged: (val) {
-                setState(() {
-                  _selectedMonth = val!;
-                  _currentPage = 1;
-                });
-              },
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: CustomDropdown<int>(
+                  initialValue: _selectedYear,
+                  decoration: _filterDecoration('Año', Icons.date_range),
+                  items: [
+                    const CustomDropdownItem(value: 0, label: 'Todos'),
+                    ...[2024, 2025, 2026, 2027].map((y) => CustomDropdownItem(value: y, label: '$y')),
+                  ],
+                  onChanged: (val) {
+                    setState(() {
+                      _selectedYear = val!;
+                      _currentPage = 1;
+                    });
+                  },
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: CustomDropdown<int>(
-              initialValue: _selectedYear,
-              decoration: InputDecoration(
-                labelText: 'Año',
-                prefixIcon: const Icon(Icons.date_range, color: Colors.black, size: 20),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: CustomDropdown<int?>(
+                  initialValue: _selectedClienteId,
+                  decoration: _filterDecoration('Cliente', Icons.person_outline),
+                  items: [
+                    const CustomDropdownItem<int?>(value: null, label: 'Todos'),
+                    ...clientesOrdenados.map((c) => CustomDropdownItem<int?>(value: c.key, label: c.value)),
+                  ],
+                  onChanged: (val) {
+                    setState(() {
+                      _selectedClienteId = val;
+                      // El préstamo elegido puede no ser de este cliente.
+                      _selectedPrestamo = null;
+                      _currentPage = 1;
+                    });
+                  },
+                ),
               ),
-              items: [2024, 2025, 2026, 2027]
-                  .map((y) => CustomDropdownItem(value: y, label: '$y'))
-                  .toList(),
-              onChanged: (val) {
-                setState(() {
-                  _selectedYear = val!;
-                  _currentPage = 1;
-                });
-              },
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: CustomDropdown<String?>(
+                  // CustomDropdown es un FormField: guarda su propio valor y
+                  // no se entera si _selectedPrestamo cambia desde afuera
+                  // (al cambiar de cliente). La key lo recrea en ese caso.
+                  key: ValueKey('prestamo-$_selectedClienteId-$_selectedPrestamo'),
+                  initialValue: _selectedPrestamo,
+                  decoration: _filterDecoration('Préstamo', Icons.request_quote_outlined),
+                  items: [
+                    const CustomDropdownItem<String?>(value: null, label: 'Todos'),
+                    ...prestamosOrdenados.map((c) => CustomDropdownItem<String?>(value: c, label: '#$c')),
+                  ],
+                  onChanged: (val) {
+                    setState(() {
+                      _selectedPrestamo = val;
+                      _currentPage = 1;
+                    });
+                  },
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -541,9 +621,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         children: [
           Icon(Icons.receipt_outlined, size: 48, color: Colors.grey.shade500),
           const SizedBox(height: 12),
-          const Text('No hay pagos registrados para este mes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
+          const Text('No hay pagos con estos filtros', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
           const SizedBox(height: 4),
-          Text('Selecciona otro período o registra un nuevo comprobante.', style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+          Text('Cambia el período, el cliente o el préstamo, o registra un nuevo comprobante.', style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
         ],
       ),
     );
