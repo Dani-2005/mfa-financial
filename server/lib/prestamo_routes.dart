@@ -42,6 +42,7 @@ Router buildPrestamoRouter() {
       await _prestamoService.create(
         usuarioResponsable: user.nombreCompleto,
         codigoReferencia: body['codigoReferencia'] as String,
+        nombrePrestamo: body['nombrePrestamo'] as String?,
         clienteId: body['clienteId'] as int,
         tipoTasa: body['tipoTasa'] as String,
         tipoCalculo: body['tipoCalculo'] as String,
@@ -87,6 +88,7 @@ Router buildPrestamoRouter() {
       await _prestamoService.editar(
         usuarioResponsable: user.nombreCompleto,
         prestamoId: prestamoId,
+        nombrePrestamo: body['nombrePrestamo'] as String?,
         clienteId: body['clienteId'] as int,
         tipoTasa: body['tipoTasa'] as String,
         tipoCalculo: body['tipoCalculo'] as String,

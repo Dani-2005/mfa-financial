@@ -43,6 +43,7 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   local_auth: ^3.0.2
   window_manager: ^0.5.1
+  share_plus: ^13.3.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

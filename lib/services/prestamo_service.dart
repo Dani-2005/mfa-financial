@@ -93,6 +93,7 @@ class PrestamoService {
   /// obligatorios; cuando es 'Fija', ambos deben venir null.
   Future<void> create({
     required String codigoReferencia,
+    String? nombrePrestamo,
     required int clienteId,
     required String tipoTasa,
     required String tipoCalculo,
@@ -111,6 +112,7 @@ class PrestamoService {
       headers: await _headers(),
       body: {
         'codigoReferencia': codigoReferencia,
+        'nombrePrestamo': nombrePrestamo,
         'clienteId': clienteId,
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
@@ -158,6 +160,7 @@ class PrestamoService {
   /// servidor; para nuevos movimientos se sigue usando "Inyectar Capital".
   Future<void> editar({
     required int prestamoId,
+    String? nombrePrestamo,
     required int clienteId,
     required String tipoTasa,
     required String tipoCalculo,
@@ -174,6 +177,7 @@ class PrestamoService {
       '/api/prestamos/$prestamoId',
       headers: await _headers(),
       body: {
+        'nombrePrestamo': nombrePrestamo,
         'clienteId': clienteId,
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,

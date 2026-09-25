@@ -44,7 +44,7 @@ class PrestamoService {
   /// selector de préstamo del formulario de "Registrar Pago".
   Future<List<Map<String, dynamic>>> fetchActivosPorCliente(int clienteId) async {
     final result = await DatabaseService.instance.query(
-      'SELECT prestamo_id, codigo_referencia, tipo_tasa, tipo_calculo, numero_cuotas '
+      'SELECT prestamo_id, codigo_referencia, nombre_prestamo, tipo_tasa, tipo_calculo, numero_cuotas '
       'FROM prestamos WHERE cliente_id = :clienteId AND activo = TRUE '
       'ORDER BY created_at DESC',
       {'clienteId': clienteId},
@@ -55,6 +55,7 @@ class PrestamoService {
       return {
         'prestamo_id': f['prestamo_id'],
         'codigo_referencia': f['codigo_referencia'],
+        'nombre_prestamo': f['nombre_prestamo'],
         'loanType': '${f['tipo_tasa']} · ${f['tipo_calculo']}',
         'numero_cuotas': f['numero_cuotas'],
       };
@@ -103,7 +104,7 @@ class PrestamoService {
   /// pestaña, sin mezclarlos con los préstamos activos.
   Future<List<Map<String, dynamic>>> fetchAll() async {
     final result = await DatabaseService.instance.query(
-      'SELECT p.prestamo_id, p.codigo_referencia, p.capital_inicial, p.balance_actual, '
+      'SELECT p.prestamo_id, p.codigo_referencia, p.nombre_prestamo, p.capital_inicial, p.balance_actual, '
       'p.tasa_interes_mensual, p.tipo_tasa, p.tipo_calculo, p.frecuencia_pago, p.fecha_inicio, '
       'p.numero_cuotas, p.mes_cambio_capitalizacion, p.estado, p.activo, c.nombre_cliente, c.tipo_cliente, '
       "(SELECT COUNT(*) FROM cuotas cu WHERE cu.prestamo_id = p.prestamo_id AND cu.interes_capitalizado = FALSE) "
@@ -175,6 +176,7 @@ class PrestamoService {
         'prestamo_id': f['prestamo_id'],
         'name': nombreCliente,
         'code': '#${f['codigo_referencia']}',
+        'nombrePrestamo': f['nombre_prestamo'],
         'frecuencia': f['frecuencia_pago'],
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
@@ -201,7 +203,7 @@ class PrestamoService {
   /// el encabezado del PDF del plan de pagos.
   Future<Map<String, dynamic>> fetchDetalle(int prestamoId) async {
     final result = await DatabaseService.instance.query(
-      'SELECT p.codigo_referencia, p.tipo_tasa, p.tipo_calculo, p.capital_inicial, '
+      'SELECT p.codigo_referencia, p.nombre_prestamo, p.tipo_tasa, p.tipo_calculo, p.capital_inicial, '
       'p.tasa_interes_mensual, p.mes_cambio_tasa, p.nueva_tasa_interes, '
       'p.mes_cambio_capitalizacion, p.frecuencia_pago, p.fecha_inicio, p.numero_cuotas, '
       'p.estado, p.activo, c.nombre_cliente, c.documento_identidad '
@@ -216,6 +218,7 @@ class PrestamoService {
     final nuevaTasa = f['nueva_tasa_interes'];
     return {
       'codigoReferencia': f['codigo_referencia'],
+      'nombrePrestamo': f['nombre_prestamo'],
       'clienteNombre': f['nombre_cliente'],
       'clienteDocumento': f['documento_identidad'],
       'tipoTasa': f['tipo_tasa'],
@@ -360,6 +363,7 @@ class PrestamoService {
   Future<void> create({
     required String usuarioResponsable,
     required String codigoReferencia,
+    String? nombrePrestamo,
     required int clienteId,
     required String tipoTasa,
     required String tipoCalculo,
@@ -409,13 +413,14 @@ class PrestamoService {
 
     final result = await DatabaseService.instance.query(
       'INSERT INTO prestamos '
-      '(codigo_referencia, cliente_id, tipo_tasa, tipo_calculo, capital_inicial, balance_actual, '
+      '(codigo_referencia, nombre_prestamo, cliente_id, tipo_tasa, tipo_calculo, capital_inicial, balance_actual, '
       'tasa_interes_mensual, mes_cambio_tasa, nueva_tasa_interes, mes_cambio_capitalizacion, '
       'frecuencia_pago, fecha_inicio, numero_cuotas, estado) '
-      'VALUES (:codigo, :clienteId, :tipoTasa, :tipoCalculo, :capital, :capital, :tasa, :mesCambio, :nuevaTasa, '
+      'VALUES (:codigo, :nombre, :clienteId, :tipoTasa, :tipoCalculo, :capital, :capital, :tasa, :mesCambio, :nuevaTasa, '
       ':mesCambioCap, :frecuencia, :fechaInicio, :numeroCuotas, :estado)',
       {
         'codigo': codigoReferencia,
+        'nombre': (nombrePrestamo == null || nombrePrestamo.trim().isEmpty) ? null : nombrePrestamo.trim(),
         'clienteId': clienteId,
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
@@ -487,6 +492,7 @@ class PrestamoService {
       accion: 'INSERT',
       datosNuevos: {
         'codigo_referencia': codigoReferencia,
+        'nombre_prestamo': nombrePrestamo,
         'cliente_id': clienteId,
         'tipo_tasa': tipoTasa,
         'tipo_calculo': tipoCalculo,
@@ -523,7 +529,7 @@ class PrestamoService {
   /// términos nuevos, sin alterar los pagos ya cobrados.
   Future<Map<String, dynamic>> fetchParaEditar(int prestamoId) async {
     final result = await DatabaseService.instance.query(
-      'SELECT codigo_referencia, cliente_id, tipo_tasa, tipo_calculo, capital_inicial, '
+      'SELECT codigo_referencia, nombre_prestamo, cliente_id, tipo_tasa, tipo_calculo, capital_inicial, '
       'tasa_interes_mensual, mes_cambio_tasa, nueva_tasa_interes, mes_cambio_capitalizacion, '
       'frecuencia_pago, fecha_inicio, numero_cuotas, estado, activo '
       'FROM prestamos WHERE prestamo_id = :id',
@@ -549,6 +555,7 @@ class PrestamoService {
     final nuevaTasa = f['nueva_tasa_interes'];
     return {
       'codigoReferencia': f['codigo_referencia'],
+      'nombrePrestamo': f['nombre_prestamo'],
       'clienteId': f['cliente_id'],
       'tipoTasa': f['tipo_tasa'],
       'tipoCalculo': f['tipo_calculo'],
@@ -579,6 +586,7 @@ class PrestamoService {
   Future<void> editar({
     required String usuarioResponsable,
     required int prestamoId,
+    String? nombrePrestamo,
     required int clienteId,
     required String tipoTasa,
     required String tipoCalculo,
@@ -671,12 +679,13 @@ class PrestamoService {
     );
 
     await DatabaseService.instance.query(
-      'UPDATE prestamos SET cliente_id = :clienteId, tipo_tasa = :tipoTasa, tipo_calculo = :tipoCalculo, '
-      'capital_inicial = :capital, tasa_interes_mensual = :tasa, mes_cambio_tasa = :mesCambio, '
-      'nueva_tasa_interes = :nuevaTasa, mes_cambio_capitalizacion = :mesCambioCap, '
+      'UPDATE prestamos SET nombre_prestamo = :nombre, cliente_id = :clienteId, tipo_tasa = :tipoTasa, '
+      'tipo_calculo = :tipoCalculo, capital_inicial = :capital, tasa_interes_mensual = :tasa, '
+      'mes_cambio_tasa = :mesCambio, nueva_tasa_interes = :nuevaTasa, mes_cambio_capitalizacion = :mesCambioCap, '
       'frecuencia_pago = :frecuencia, fecha_inicio = :fechaInicio, numero_cuotas = :numeroCuotas, '
       'estado = :estado WHERE prestamo_id = :id',
       {
+        'nombre': (nombrePrestamo == null || nombrePrestamo.trim().isEmpty) ? null : nombrePrestamo.trim(),
         'clienteId': clienteId,
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
@@ -761,6 +770,7 @@ class PrestamoService {
       accion: 'UPDATE',
       datosNuevos: {
         'evento': 'edicion de terminos',
+        'nombre_prestamo': nombrePrestamo,
         'cliente_id': clienteId,
         'tipo_tasa': tipoTasa,
         'tipo_calculo': tipoCalculo,

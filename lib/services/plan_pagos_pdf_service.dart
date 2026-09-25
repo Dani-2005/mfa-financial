@@ -104,6 +104,8 @@ class PlanPagosPdfService {
                 pw.SizedBox(height: 4),
                 pw.Text('Generado: $fechaGeneracion', style: const pw.TextStyle(fontSize: 9)),
                 pw.Text('Préstamo #${detalle['codigoReferencia']}', style: const pw.TextStyle(fontSize: 9)),
+                if ((detalle['nombrePrestamo'] as String?)?.isNotEmpty == true)
+                  pw.Text('${detalle['nombrePrestamo']}', style: const pw.TextStyle(fontSize: 9)),
               ],
             ),
           ],

@@ -13,7 +13,7 @@ class PagoService {
     final result = await DatabaseService.instance.query(
       'SELECT r.codigo_recibo, r.fecha_emision, r.monto_total_pagado, r.descripcion_concepto, '
       'r.metodo_pago, r.referencia, r.activo, r.tipo_movimiento, '
-      'cu.numero_periodo, p.numero_cuotas, p.codigo_referencia, cl.cliente_id, cl.nombre_cliente '
+      'cu.numero_periodo, p.numero_cuotas, p.codigo_referencia, p.nombre_prestamo, cl.cliente_id, cl.nombre_cliente '
       'FROM recibos_pagos r '
       'JOIN prestamos p ON p.prestamo_id = r.prestamo_id '
       'JOIN clientes cl ON cl.cliente_id = p.cliente_id '
@@ -47,6 +47,7 @@ class PagoService {
         // Para los filtros por cliente y por préstamo del Historial de Pagos.
         'cliente_id': f['cliente_id'],
         'prestamo_codigo': f['codigo_referencia'],
+        'prestamo_nombre': f['nombre_prestamo'],
         'cuota': cuotaTexto,
         'tipoMovimiento': tipoMovimiento,
         'fecha_emision': _formatDateDisplay(fecha),
@@ -75,7 +76,7 @@ class PagoService {
       'r.metodo_pago, r.referencia, r.tipo_movimiento, r.balance_pendiente AS balance_congelado, '
       'cu.numero_periodo, cu.saldo_inicio_periodo, cu.fecha_vencimiento, '
       'cu.monto_interes_generado, cu.monto_capital_amortizado, cu.monto_pagado_acumulado, '
-      'p.codigo_referencia, p.balance_actual, p.numero_cuotas, '
+      'p.codigo_referencia, p.nombre_prestamo, p.balance_actual, p.numero_cuotas, '
       'cl.nombre_cliente, cl.documento_identidad, cl.direccion '
       'FROM recibos_pagos r '
       'JOIN prestamos p ON p.prestamo_id = r.prestamo_id '
@@ -157,6 +158,7 @@ class PagoService {
       'cliente_documento': f['documento_identidad'],
       'cliente_direccion': (f['direccion'] as String?)?.isNotEmpty == true ? f['direccion'] : 'N/A',
       'prestamo_referencia': f['codigo_referencia'],
+      'prestamo_nombre': f['nombre_prestamo'],
       'tipo_movimiento': tipoMovimiento,
       'metodo_pago': f['metodo_pago'],
       'referencia': f['referencia'],

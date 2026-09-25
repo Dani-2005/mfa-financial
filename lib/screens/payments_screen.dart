@@ -365,18 +365,20 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     // Clientes y préstamos que aparecen en los pagos cargados. Si hay un
     // cliente elegido, el filtro de préstamo solo ofrece los de ese cliente.
     final clientes = <int, String>{};
-    final prestamos = <String>{};
+    // Código -> nombre del préstamo (si tiene), para mostrarlo junto al
+    // código en las opciones del filtro.
+    final prestamos = <String, String?>{};
     for (final p in _allPayments) {
       final clienteId = p['cliente_id'] as int?;
       if (clienteId != null) clientes[clienteId] = p['cliente'] as String;
       final codigo = p['prestamo_codigo'] as String?;
       if (codigo != null && (_selectedClienteId == null || clienteId == _selectedClienteId)) {
-        prestamos.add(codigo);
+        prestamos[codigo] = p['prestamo_nombre'] as String?;
       }
     }
     final clientesOrdenados = clientes.entries.toList()
       ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
-    final prestamosOrdenados = prestamos.toList()..sort();
+    final prestamosOrdenados = prestamos.keys.toList()..sort();
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -458,7 +460,11 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   decoration: _filterDecoration('Préstamo', Icons.request_quote_outlined),
                   items: [
                     const CustomDropdownItem<String?>(value: null, label: 'Todos'),
-                    ...prestamosOrdenados.map((c) => CustomDropdownItem<String?>(value: c, label: '#$c')),
+                    ...prestamosOrdenados.map((c) {
+                      final nombre = prestamos[c];
+                      final label = (nombre != null && nombre.isNotEmpty) ? '#$c · $nombre' : '#$c';
+                      return CustomDropdownItem<String?>(value: c, label: label);
+                    }),
                   ],
                   onChanged: (val) {
                     setState(() {
@@ -939,10 +945,10 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
         _isLoadingSaldo = false;
         if (_tipoMovimiento == 'Liquidacion_Total') {
           _amountController.text = MoneyInputFormatter.format(saldoActual);
-          _conceptController.text = 'Liquidación total del préstamo #${prestamo['codigo_referencia']}. '
+          _conceptController.text = 'Liquidación total del préstamo ${_codigoConNombre(prestamo)}. '
               'Paga el saldo total de ${_formatMoney(saldoActual)} y finaliza el préstamo.';
         } else {
-          _conceptController.text = 'Abono a capital del préstamo #${prestamo['codigo_referencia']}.';
+          _conceptController.text = 'Abono a capital del préstamo ${_codigoConNombre(prestamo)}.';
         }
       });
     } catch (e) {
@@ -954,6 +960,14 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
             : (e is NoConnectionException ? e.message : 'No se pudo obtener el saldo actual del préstamo.');
       });
     }
+  }
+
+  /// "#código (nombre)" si el préstamo tiene nombre, o solo "#código" si no
+  /// — para que el concepto sugerido del recibo también lo identifique.
+  String _codigoConNombre(Map<String, dynamic> prestamo) {
+    final nombre = prestamo['nombre_prestamo'] as String?;
+    final codigo = '#${prestamo['codigo_referencia']}';
+    return (nombre != null && nombre.isNotEmpty) ? '$codigo ($nombre)' : codigo;
   }
 
   void _onTipoChanged(String tipo) {
@@ -986,11 +1000,11 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
         // blanco para que no confirme por error el monto completo.
         _amountController.clear();
         _conceptController.text = 'Pago parcial de la cuota ${cuota['numeroPeriodo']} de ${cuota['numeroCuotas']} '
-            'del préstamo #${prestamo['codigo_referencia']} (falta ${_formatMoney(montoRestante)}).';
+            'del préstamo ${_codigoConNombre(prestamo)} (falta ${_formatMoney(montoRestante)}).';
       } else {
         _amountController.text = MoneyInputFormatter.format(montoRestante);
         _conceptController.text = 'Pago de la cuota ${cuota['numeroPeriodo']} de ${cuota['numeroCuotas']} '
-            'del préstamo #${prestamo['codigo_referencia']}.';
+            'del préstamo ${_codigoConNombre(prestamo)}.';
       }
     });
   }
@@ -1246,12 +1260,16 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                items: _prestamos
-                    .map((p) => CustomDropdownItem<int>(
-                          value: p['prestamo_id'] as int,
-                          label: '#${p['codigo_referencia']} (${p['loanType']})',
-                        ))
-                    .toList(),
+                items: _prestamos.map((p) {
+                  final nombre = p['nombre_prestamo'] as String?;
+                  final codigo = (nombre != null && nombre.isNotEmpty)
+                      ? '#${p['codigo_referencia']} · $nombre'
+                      : '#${p['codigo_referencia']}';
+                  return CustomDropdownItem<int>(
+                    value: p['prestamo_id'] as int,
+                    label: '$codigo (${p['loanType']})',
+                  );
+                }).toList(),
                 onChanged: _onPrestamoChanged,
               ),
               if (_prestamosLoadError != null) ...[

@@ -337,7 +337,8 @@ class _LoansScreenState extends State<LoansScreen> {
       final matchesSearch =
           query.isEmpty ||
           (loan['name'] as String).toLowerCase().contains(query) ||
-          (loan['code'] as String).toLowerCase().contains(query);
+          (loan['code'] as String).toLowerCase().contains(query) ||
+          ((loan['nombrePrestamo'] as String?) ?? '').toLowerCase().contains(query);
 
       final status = loan['status'] as String;
       bool matchesTab;
@@ -556,7 +557,7 @@ class _LoansScreenState extends State<LoansScreen> {
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
-          hintText: 'Buscar por cliente o código...',
+          hintText: 'Buscar por cliente, código o nombre...',
           hintStyle: TextStyle(color: Colors.grey.shade700, fontSize: 12),
           prefixIcon: Icon(Icons.search, color: Colors.grey.shade500, size: 20),
           suffixIcon: Icon(Icons.tune, color: Colors.grey.shade600, size: 18),
@@ -654,6 +655,7 @@ class _LoansScreenState extends State<LoansScreen> {
   Widget _buildLoanCard(BuildContext context, Map<String, dynamic> loan) {
     final name = loan['name'] as String;
     final code = loan['code'] as String;
+    final nombrePrestamo = loan['nombrePrestamo'] as String?;
     final type = loan['frecuencia'] as String;
     final totalAmount = loan['totalAmount'] as String;
     final remainingAmount = loan['remainingAmount'] as String;
@@ -742,7 +744,9 @@ class _LoansScreenState extends State<LoansScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '$code • $type',
+                        nombrePrestamo != null && nombrePrestamo.isNotEmpty
+                            ? '$code · $nombrePrestamo • $type'
+                            : '$code • $type',
                         style: TextStyle(
                           color: Colors.grey.shade800,
                           fontSize: 10,
@@ -1557,6 +1561,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     final loan = _loan;
     final name = loan['name'] as String;
     final code = loan['code'] as String;
+    final nombrePrestamo = loan['nombrePrestamo'] as String?;
     final loanType = loan['loanType'] as String;
     final type = loan['frecuencia'] as String;
     final totalAmount = loan['totalAmount'] as String;
@@ -1650,6 +1655,8 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                       runSpacing: 12,
                       children: [
                         _infoItem('Código', code, Icons.qr_code),
+                        if (nombrePrestamo != null && nombrePrestamo.isNotEmpty)
+                          _infoItem('Nombre del Préstamo', nombrePrestamo, Icons.label_outline),
                         _infoItem(
                           'Tipo de Préstamo',
                           loanType,
@@ -2285,6 +2292,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   final TextEditingController _codeController = TextEditingController(
     text: 'Generando código...',
   );
+  final TextEditingController _nombreController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _interestController = TextEditingController();
   final TextEditingController _newInterestController = TextEditingController();
@@ -2338,6 +2346,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   void _prefillDesdeExistente(Map<String, dynamic> e) {
     _codigoGenerado = e['codigoReferencia'] as String;
     _codeController.text = _codigoGenerado!;
+    _nombreController.text = (e['nombrePrestamo'] as String?) ?? '';
     _selectedClienteId = e['clienteId'] as int;
     _selectedTipoTasa = e['tipoTasa'] as String;
     _selectedTipoCalculo = e['tipoCalculo'] as String;
@@ -2401,6 +2410,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   @override
   void dispose() {
     _codeController.dispose();
+    _nombreController.dispose();
     _amountController.dispose();
     _interestController.dispose();
     _newInterestController.dispose();
@@ -2445,6 +2455,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
       if (_isEditMode) {
         await _prestamoService.editar(
           prestamoId: widget.prestamoId!,
+          nombrePrestamo: _nombreController.text.trim().isEmpty ? null : _nombreController.text.trim(),
           clienteId: _selectedClienteId!,
           tipoTasa: _selectedTipoTasa,
           tipoCalculo: _selectedTipoCalculo,
@@ -2482,6 +2493,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
 
       await _prestamoService.create(
         codigoReferencia: _codigoGenerado!,
+        nombrePrestamo: _nombreController.text.trim().isEmpty ? null : _nombreController.text.trim(),
         clienteId: _selectedClienteId!,
         tipoTasa: _selectedTipoTasa,
         tipoCalculo: _selectedTipoCalculo,
@@ -2618,6 +2630,15 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                       color: Colors.grey.shade800,
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  TextFormField(
+                    controller: _nombreController,
+                    decoration: _inputDecoration(
+                      'Nombre del Préstamo (opcional)',
+                      Icons.label_outline,
                     ),
                   ),
                   const SizedBox(height: 14),

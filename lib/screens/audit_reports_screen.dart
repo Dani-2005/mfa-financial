@@ -80,6 +80,7 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
     },
     'Préstamos': {
       'Código Préstamo': true,
+      'Nombre del Préstamo': true,
       'Cédula Cliente': true,
       'Monto Aprobado': true,
       'Plazo': true,

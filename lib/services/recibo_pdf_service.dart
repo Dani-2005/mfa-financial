@@ -115,6 +115,13 @@ class ReciboPdfService {
             pw.Text(detalle['fecha_emision'] as String, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 4),
             pw.Text('RECIBO ${detalle['codigo_recibo']}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            if ((detalle['prestamo_nombre'] as String?)?.isNotEmpty == true) ...[
+              pw.SizedBox(height: 3),
+              pw.Text(
+                '${detalle['prestamo_nombre']}',
+                style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+              ),
+            ],
           ],
         ),
       ],

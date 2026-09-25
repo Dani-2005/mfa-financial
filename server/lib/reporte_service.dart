@@ -46,7 +46,7 @@ class ReporteService {
 
   Future<List<Map<String, dynamic>>> _fetchPrestamos(int? clienteId) async {
     final result = await DatabaseService.instance.query(
-      'SELECT p.codigo_referencia, c.documento_identidad, p.capital_inicial, p.numero_cuotas, p.estado '
+      'SELECT p.codigo_referencia, p.nombre_prestamo, c.documento_identidad, p.capital_inicial, p.numero_cuotas, p.estado '
       'FROM prestamos p JOIN clientes c ON c.cliente_id = p.cliente_id '
       '${clienteId != null ? 'WHERE p.cliente_id = :clienteId ' : ''}'
       'ORDER BY p.created_at DESC',
@@ -56,6 +56,7 @@ class ReporteService {
       final f = row.typedAssoc();
       return {
         'Código Préstamo': f['codigo_referencia'],
+        'Nombre del Préstamo': (f['nombre_prestamo'] as String?)?.isNotEmpty == true ? f['nombre_prestamo'] : 'N/A',
         'Cédula Cliente': f['documento_identidad'],
         'Monto Aprobado': _formatMoney(_toDouble(f['capital_inicial'])),
         'Plazo': '${f['numero_cuotas']} cuotas',
