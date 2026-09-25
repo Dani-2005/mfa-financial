@@ -117,22 +117,10 @@ class AuthService {
       throw ArgumentError(mensajeCredencialesInvalidas);
     }
 
-    // Sesión única por cuenta: si ya hay una sesión activa (no expirada) en
-    // otro dispositivo, se rechaza este login SIN tocarla — la sesión
-    // existente sigue viva y con su mismo token. Solo si esa sesión ya
-    // expiró se permite continuar y reemplazarla más abajo.
-    final sesionActual = await DatabaseService.instance.query(
-      'SELECT expira_en FROM sesiones WHERE usuario_id = :id',
-      {'id': usuarioId},
-    );
-    if (sesionActual.rows.isNotEmpty) {
-      final expiraActual = sesionActual.rows.first.typedAssoc()['expira_en'] as DateTime;
-      if (expiraActual.isAfter(DateTime.now())) {
-        throw ArgumentError(
-          'Ya hay una sesión activa en otro dispositivo. Cierra esa sesión antes de iniciar una nueva.',
-        );
-      }
-    }
+    // Varias sesiones por cuenta: cada login agrega su propia fila en
+    // `sesiones` (una por dispositivo) sin tocar las demás, así que varias
+    // personas pueden usar la misma cuenta a la vez. Cada sesión se valida,
+    // desliza y cierra por separado usando su propio token.
 
     await DatabaseService.instance.query(
       'UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL, ultimo_login = NOW() '
@@ -141,13 +129,8 @@ class AuthService {
     );
 
     final token = _generarToken();
-    final tokenHash = _hashToken(token);
     final expiraEn = DateTime.now().add(duracionSesion);
-    await DatabaseService.instance.query(
-      'INSERT INTO sesiones (usuario_id, token_hash, expira_en) VALUES (:id, :hash, :exp) '
-      'ON DUPLICATE KEY UPDATE token_hash = :hash, expira_en = :exp, creado_en = CURRENT_TIMESTAMP',
-      {'id': usuarioId, 'hash': tokenHash, 'exp': _formatDateTime(expiraEn)},
-    );
+    await _crearSesion(usuarioId: usuarioId, token: token, expiraEn: expiraEn);
 
     final user = AuthUser(
       usuarioId: usuarioId,
@@ -166,29 +149,43 @@ class AuthService {
     return LoginResult(user: user, token: token, expiraEn: expiraEn);
   }
 
+  /// Inserta una sesión nueva (una fila por dispositivo) y, de paso, borra
+  /// las sesiones ya vencidas de ese usuario para que la tabla no crezca
+  /// indefinidamente con dispositivos que nunca cerraron sesión.
+  Future<void> _crearSesion({required int usuarioId, required String token, required DateTime expiraEn}) async {
+    await DatabaseService.instance.query(
+      'DELETE FROM sesiones WHERE usuario_id = :id AND expira_en < NOW()',
+      {'id': usuarioId},
+    );
+    await DatabaseService.instance.query(
+      'INSERT INTO sesiones (usuario_id, token_hash, expira_en) VALUES (:id, :hash, :exp)',
+      {'id': usuarioId, 'hash': _hashToken(token), 'exp': _formatDateTime(expiraEn)},
+    );
+  }
+
   /// Valida el token de sesión que manda el cliente en cada petición
   /// autenticada; si sigue siendo válido, lo desliza otros 30 minutos (el
   /// mismo comportamiento que `restoreSession`/`refrescarActividad` tenían
   /// en la app). Devuelve `null` si no es válido por cualquier motivo
-  /// (expiró, la reemplazó otro dispositivo, o la cuenta ya no está activa)
-  /// sin distinguir cuál, igual que antes.
+  /// (expiró, se cerró, o la cuenta ya no está activa) sin distinguir cuál,
+  /// igual que antes. Solo mira la sesión de ESTE token: las sesiones de
+  /// otros dispositivos de la misma cuenta no la afectan.
   Future<AuthUser?> validarYDeslizarSesion({required int usuarioId, required String token}) async {
     final hash = _hashToken(token);
     final result = await DatabaseService.instance.query(
-      'SELECT s.token_hash, s.expira_en, u.usuario_id, u.nombre_usuario, u.nombre_completo, u.activo '
+      'SELECT s.expira_en, u.usuario_id, u.nombre_usuario, u.nombre_completo, u.activo '
       'FROM sesiones s JOIN usuarios u ON u.usuario_id = s.usuario_id '
-      'WHERE s.usuario_id = :id',
-      {'id': usuarioId},
+      'WHERE s.usuario_id = :id AND s.token_hash = :hash',
+      {'id': usuarioId, 'hash': hash},
     );
     if (result.rows.isEmpty) return null;
 
     final f = result.rows.first.typedAssoc();
-    final tokenHashServidor = f['token_hash'] as String;
     final expiraEnServidor = f['expira_en'] as DateTime;
     final activo = f['activo'] as bool;
     final ahora = DateTime.now();
 
-    if (!activo || tokenHashServidor != hash || ahora.isAfter(expiraEnServidor)) {
+    if (!activo || ahora.isAfter(expiraEnServidor)) {
       return null;
     }
 
@@ -228,9 +225,14 @@ class AuthService {
     final tokenHash = _hashToken(token);
     final expiraEn = DateTime.now().add(duracionRecordarDispositivo);
 
+    // Una fila por dispositivo recordado (varios por cuenta); se aprovecha
+    // para limpiar los ya vencidos de este usuario.
     await DatabaseService.instance.query(
-      'INSERT INTO recordar_dispositivo (usuario_id, token_hash, expira_en) VALUES (:id, :hash, :exp) '
-      'ON DUPLICATE KEY UPDATE token_hash = :hash, expira_en = :exp, creado_en = CURRENT_TIMESTAMP',
+      'DELETE FROM recordar_dispositivo WHERE usuario_id = :id AND expira_en < NOW()',
+      {'id': user.usuarioId},
+    );
+    await DatabaseService.instance.query(
+      'INSERT INTO recordar_dispositivo (usuario_id, token_hash, expira_en) VALUES (:id, :hash, :exp)',
       {'id': user.usuarioId, 'hash': tokenHash, 'exp': _formatDateTime(expiraEn)},
     );
 
@@ -259,11 +261,11 @@ class AuthService {
   Future<RenovarBiometriaResult?> renovarSesionConBiometria({required int usuarioId, required String recordarToken}) async {
     final hashRecordado = _hashToken(recordarToken);
     final result = await DatabaseService.instance.query(
-      'SELECT r.token_hash, r.expira_en, u.usuario_id, u.nombre_usuario, u.nombre_completo, '
+      'SELECT r.expira_en, u.usuario_id, u.nombre_usuario, u.nombre_completo, '
       'u.activo, u.bloqueado_hasta '
       'FROM recordar_dispositivo r JOIN usuarios u ON u.usuario_id = r.usuario_id '
-      'WHERE r.usuario_id = :id',
-      {'id': usuarioId},
+      'WHERE r.usuario_id = :id AND r.token_hash = :hash',
+      {'id': usuarioId, 'hash': hashRecordado},
     );
     if (result.rows.isEmpty) return null;
 
@@ -272,29 +274,26 @@ class AuthService {
     final activo = f['activo'] as bool;
     final bloqueadoHasta = f['bloqueado_hasta'] as DateTime?;
     final expiraEn = f['expira_en'] as DateTime;
-    final valido = f['token_hash'] == hashRecordado &&
-        activo &&
+    final valido = activo &&
         (bloqueadoHasta == null || bloqueadoHasta.isBefore(ahora)) &&
         expiraEn.isAfter(ahora);
 
     if (!valido) return null;
 
+    // Se rota solo el token de ESTE dispositivo recordado (el de otros
+    // dispositivos de la misma cuenta no se toca).
     final nuevoToken = _generarToken();
     final nuevoHash = _hashToken(nuevoToken);
     final nuevaExpiracionRecordar = ahora.add(duracionRecordarDispositivo);
     await DatabaseService.instance.query(
-      'UPDATE recordar_dispositivo SET token_hash = :hash, expira_en = :exp WHERE usuario_id = :id',
-      {'hash': nuevoHash, 'exp': _formatDateTime(nuevaExpiracionRecordar), 'id': usuarioId},
+      'UPDATE recordar_dispositivo SET token_hash = :nuevo, expira_en = :exp '
+      'WHERE usuario_id = :id AND token_hash = :viejo',
+      {'nuevo': nuevoHash, 'exp': _formatDateTime(nuevaExpiracionRecordar), 'id': usuarioId, 'viejo': hashRecordado},
     );
 
     final sesionToken = _generarToken();
-    final sesionHash = _hashToken(sesionToken);
     final sesionExpiraEn = ahora.add(duracionSesion);
-    await DatabaseService.instance.query(
-      'INSERT INTO sesiones (usuario_id, token_hash, expira_en) VALUES (:id, :hash, :exp) '
-      'ON DUPLICATE KEY UPDATE token_hash = :hash, expira_en = :exp, creado_en = CURRENT_TIMESTAMP',
-      {'id': usuarioId, 'hash': sesionHash, 'exp': _formatDateTime(sesionExpiraEn)},
-    );
+    await _crearSesion(usuarioId: usuarioId, token: sesionToken, expiraEn: sesionExpiraEn);
 
     final user = AuthUser(
       usuarioId: f['usuario_id'] as int,
