@@ -7,6 +7,9 @@ class ReporteService {
   Future<List<Map<String, dynamic>>> fetchDatos({
     required String modulo,
     int? clienteId,
+    String? tipoAccion,
+    DateTime? fechaDesde,
+    DateTime? fechaHasta,
   }) async {
     final headers = await AuthService.instance.authHeaders();
     if (headers == null) throw StateError('No hay una sesión activa.');
@@ -14,6 +17,9 @@ class ReporteService {
     final query = {
       'modulo': modulo,
       if (clienteId != null) 'clienteId': '$clienteId',
+      if (tipoAccion != null) 'tipoAccion': tipoAccion,
+      if (fechaDesde != null) 'fechaDesde': fechaDesde.toIso8601String(),
+      if (fechaHasta != null) 'fechaHasta': fechaHasta.toIso8601String(),
     };
     final path = '/api/reportes/?${Uri(queryParameters: query).query}';
 

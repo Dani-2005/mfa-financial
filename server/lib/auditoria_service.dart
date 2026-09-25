@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'auditoria_descripcion.dart';
 import 'database_service.dart';
 import 'http_helpers.dart';
 
@@ -14,7 +15,18 @@ class AuditoriaService {
       'ORDER BY fecha_accion DESC, auditoriaSistema_id DESC',
     );
 
-    return result.rows.map((row) => jsonSafeRow(row.typedAssoc())).toList();
+    return result.rows.map((row) {
+      final f = row.typedAssoc();
+      final fila = jsonSafeRow(f);
+      fila['descripcion'] = descripcionAuditoria(
+        tabla: f['tabla_afectada'] as String,
+        accion: f['accion'] as String,
+        registroId: f['registro_id'] as String,
+        usuario: (f['usuario_responsable'] as String?) ?? 'N/A',
+        nuevos: auditoriaAsMap(f['datos_nuevos']),
+      );
+      return fila;
+    }).toList();
   }
 
   Future<void> log({

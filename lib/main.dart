@@ -306,6 +306,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     return PopupMenuButton<String>(
       tooltip: nombre.isEmpty ? 'Cuenta' : 'Cuenta: $nombre',
       color: Colors.white,
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
       icon: Icon(
         Icons.account_circle_outlined,
         color: isDesktop ? Colors.grey.shade500 : Colors.grey.shade600,

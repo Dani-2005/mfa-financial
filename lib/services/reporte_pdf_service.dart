@@ -19,6 +19,8 @@ class ReportePdfService {
     required List<String> columnas,
     required List<Map<String, dynamic>> filas,
     String? filtroCliente,
+    String? filtroTipoAccion,
+    String? filtroRangoFechas,
   }) async {
     final doc = pw.Document();
     final fechaGeneracion = _formatFechaHora(DateTime.now());
@@ -31,7 +33,7 @@ class ReportePdfService {
             ? pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  _buildEncabezado(modulo, fechaGeneracion, filtroCliente),
+                  _buildEncabezado(modulo, fechaGeneracion, filtroCliente, filtroTipoAccion, filtroRangoFechas),
                   pw.SizedBox(height: 14),
                 ],
               )
@@ -53,7 +55,13 @@ class ReportePdfService {
     return doc.save();
   }
 
-  static pw.Widget _buildEncabezado(String modulo, String fechaGeneracion, String? filtroCliente) {
+  static pw.Widget _buildEncabezado(
+    String modulo,
+    String fechaGeneracion,
+    String? filtroCliente,
+    String? filtroTipoAccion,
+    String? filtroRangoFechas,
+  ) {
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -76,6 +84,14 @@ class ReportePdfService {
             if (filtroCliente != null) ...[
               pw.SizedBox(height: 2),
               pw.Text('Cliente: $filtroCliente', style: const pw.TextStyle(fontSize: 9)),
+            ],
+            if (filtroTipoAccion != null) ...[
+              pw.SizedBox(height: 2),
+              pw.Text('Tipo de Evento: $filtroTipoAccion', style: const pw.TextStyle(fontSize: 9)),
+            ],
+            if (filtroRangoFechas != null) ...[
+              pw.SizedBox(height: 2),
+              pw.Text(filtroRangoFechas, style: const pw.TextStyle(fontSize: 9)),
             ],
           ],
         ),

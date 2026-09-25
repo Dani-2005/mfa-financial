@@ -81,6 +81,9 @@ flutter:
   assets:
     - assets/logooficial.jpeg
     - assets/maf_api_cert.pem
+    - assets/sello_huella1.png
+    - assets/sello_huella2.png
+    - assets/sello_firma.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -6,8 +6,9 @@ import 'package:pdf/widgets.dart' as pw;
 /// Genera el PDF del "Plan de Pagos" de un préstamo puntual: encabezado con
 /// los datos del préstamo (código, cliente, tipo de tasa/cálculo,
 /// frecuencia, fecha, tasa de interés, si tiene cambio de tasa programado o
-/// es una operación por fases), la tabla de cuotas completa, y los
-/// movimientos de capital (inyecciones/retiros) si los hay.
+/// es una operación por fases) y la tabla de cuotas completa, con los
+/// movimientos de capital (inyecciones/retiros) resaltados justo arriba de
+/// la cuota a partir de la cual se aplican.
 class PlanPagosPdfService {
   static const _emisorNombre = 'Miguel A. Flores';
   static const _emisorDireccion = '8953 E Captian Dreyfus Ave Scottsdale, AZ 85260';
@@ -22,6 +23,8 @@ class PlanPagosPdfService {
   }) async {
     final doc = pw.Document();
     final fechaGeneracion = _formatFechaHora(DateTime.now());
+    final mesCambioTasa = detalle['mesCambioTasa'] as int?;
+    final nuevaTasaInteres = detalle['nuevaTasaInteres'] as String?;
 
     doc.addPage(
       pw.MultiPage(
@@ -41,8 +44,21 @@ class PlanPagosPdfService {
             'Plan de Pagos (Cuotas)',
             style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: _colorEncabezado),
           ),
+          if (movimientos.isNotEmpty || mesCambioTasa != null) ...[
+            pw.SizedBox(height: 2),
+            pw.Text(
+              'Los movimientos de capital (inyecciones/retiros) y el cambio de tasa, si los hay, '
+              'aparecen resaltados justo arriba de la cuota a partir de la cual se aplican.',
+              style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700),
+            ),
+          ],
           pw.SizedBox(height: 6),
-          _buildTablaCuotas(cuotas),
+          _buildTablaCuotasConMovimientos(
+            cuotas,
+            movimientos,
+            mesCambioTasa: mesCambioTasa,
+            nuevaTasaInteres: nuevaTasaInteres,
+          ),
           if (cuotas.any((c) => c['capitalizado'] == 'Sí')) ...[
             pw.SizedBox(height: 6),
             pw.Text(
@@ -50,15 +66,6 @@ class PlanPagosPdfService {
               'el interés se reinvierte automáticamente en el saldo en vez de cobrarse.',
               style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700),
             ),
-          ],
-          if (movimientos.isNotEmpty) ...[
-            pw.SizedBox(height: 18),
-            pw.Text(
-              'Movimientos de Capital',
-              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: _colorEncabezado),
-            ),
-            pw.SizedBox(height: 6),
-            _buildTablaMovimientos(movimientos),
           ],
         ],
       ),
@@ -166,15 +173,67 @@ class PlanPagosPdfService {
   static const _columnasCuotas = ['Periodo', 'Fecha', 'Saldo Inicio', 'Tasa', 'Interés', 'Amortización', 'Capitalizado', 'Saldo Fin', 'Estado'];
   static const _clavesCuotas = ['periodo', 'fecha', 'saldoInicio', 'tasa', 'interes', 'amortizacion', 'capitalizado', 'saldoFin', 'estado'];
 
-  static pw.Widget _buildTablaCuotas(List<Map<String, dynamic>> cuotas) {
+  /// Construye la tabla de cuotas insertando, justo arriba de la cuota a
+  /// partir de la cual se aplica cada movimiento de capital (o el cambio de
+  /// tasa, si lo hay), una fila resaltada que lo indica. Como esa fila no
+  /// tiene un valor por columna, la tabla se parte en dos tablas seguidas
+  /// (una que termina antes del aviso y otra que retoma después) con una
+  /// franja de ancho completo en medio, para que se vea como una fila más
+  /// dentro de la misma tabla en vez de un bloque aparte.
+  static pw.Widget _buildTablaCuotasConMovimientos(
+    List<Map<String, dynamic>> cuotas,
+    List<Map<String, dynamic>> movimientos, {
+    int? mesCambioTasa,
+    String? nuevaTasaInteres,
+  }) {
+    final pendientes = List<Map<String, dynamic>>.from(movimientos);
+    final widgets = <pw.Widget>[];
+    var segmento = <Map<String, dynamic>>[];
+    var esPrimerSegmento = true;
+
+    void cerrarSegmento() {
+      if (segmento.isEmpty) return;
+      widgets.add(_buildTablaCuotas(segmento, incluirEncabezado: esPrimerSegmento));
+      esPrimerSegmento = false;
+      segmento = [];
+    }
+
+    for (final cuota in cuotas) {
+      final periodoCuota = int.tryParse('${cuota['periodo']}');
+      final aplicanAqui = pendientes.where((m) => int.tryParse('${m['periodo']}') == periodoCuota).toList();
+      final hayCambioTasa = mesCambioTasa != null && periodoCuota == mesCambioTasa;
+      if (aplicanAqui.isNotEmpty || hayCambioTasa) {
+        cerrarSegmento();
+        if (hayCambioTasa) {
+          widgets.add(_filaCambioTasa(nuevaTasaInteres));
+        }
+        for (final mov in aplicanAqui) {
+          widgets.add(_filaMovimiento(mov));
+          pendientes.remove(mov);
+        }
+      }
+      segmento.add(cuota);
+    }
+    cerrarSegmento();
+    // Movimientos cuyo período no calzó con ninguna cuota (no debería pasar
+    // en la práctica, pero así no se pierden silenciosamente).
+    for (final mov in pendientes) {
+      widgets.add(_filaMovimiento(mov));
+    }
+
+    return pw.Column(children: widgets);
+  }
+
+  static pw.Widget _buildTablaCuotas(List<Map<String, dynamic>> cuotas, {bool incluirEncabezado = true}) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
       columnWidths: {for (int i = 0; i < _columnasCuotas.length; i++) i: const pw.FlexColumnWidth(1)},
       children: [
-        pw.TableRow(
-          decoration: pw.BoxDecoration(color: _colorEncabezado),
-          children: _columnasCuotas.map(_celdaEncabezado).toList(),
-        ),
+        if (incluirEncabezado)
+          pw.TableRow(
+            decoration: pw.BoxDecoration(color: _colorEncabezado),
+            children: _columnasCuotas.map(_celdaEncabezado).toList(),
+          ),
         for (final cuota in cuotas)
           pw.TableRow(
             children: _clavesCuotas.map((clave) => _celda('${cuota[clave] ?? ''}')).toList(),
@@ -183,23 +242,39 @@ class PlanPagosPdfService {
     );
   }
 
-  static const _columnasMovimientos = ['Tipo', 'Periodo', 'Monto', 'Fecha'];
-  static const _clavesMovimientos = ['tipo', 'periodo', 'monto', 'fecha'];
-
-  static pw.Widget _buildTablaMovimientos(List<Map<String, dynamic>> movimientos) {
-    return pw.Table(
-      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-      columnWidths: {for (int i = 0; i < _columnasMovimientos.length; i++) i: const pw.FlexColumnWidth(1)},
-      children: [
-        pw.TableRow(
-          decoration: pw.BoxDecoration(color: _colorEncabezado),
-          children: _columnasMovimientos.map(_celdaEncabezado).toList(),
+  static pw.Widget _filaMovimiento(Map<String, dynamic> mov) {
+    final esInyeccion = mov['esInyeccion'] as bool? ?? true;
+    return pw.Container(
+      width: double.infinity,
+      decoration: pw.BoxDecoration(
+        color: esInyeccion ? PdfColors.green50 : PdfColors.red50,
+        border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
+      ),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+      child: pw.Text(
+        '${esInyeccion ? '(+)' : '(-)'} ${mov['tipo']} de capital: ${mov['monto']}  ·  ${mov['fecha']}  '
+        '(aplica a partir de esta cuota)',
+        style: pw.TextStyle(
+          fontSize: 8,
+          fontWeight: pw.FontWeight.bold,
+          color: esInyeccion ? PdfColors.green900 : PdfColors.red900,
         ),
-        for (final mov in movimientos)
-          pw.TableRow(
-            children: _clavesMovimientos.map((clave) => _celda('${mov[clave] ?? ''}')).toList(),
-          ),
-      ],
+      ),
+    );
+  }
+
+  static pw.Widget _filaCambioTasa(String? nuevaTasaInteres) {
+    return pw.Container(
+      width: double.infinity,
+      decoration: pw.BoxDecoration(
+        color: PdfColors.blue50,
+        border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
+      ),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+      child: pw.Text(
+        'Cambio de tasa: nueva tasa $nuevaTasaInteres (aplica a partir de esta cuota)',
+        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
+      ),
     );
   }
 

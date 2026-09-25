@@ -674,6 +674,12 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
   int? _selectedCuotaId;
   String _selectedMethod = 'Transferencia Bancaria';
 
+  /// Fecha con la que queda el recibo y el pago (columna `fecha_emision` en
+  /// `recibos_pagos`). Por defecto es hoy, pero el usuario puede elegir otra
+  /// (p. ej. para registrar con la fecha real en que el cliente pagó, no la
+  /// fecha en que se está capturando en el sistema).
+  DateTime _fechaPago = DateTime.now();
+
   /// Se incrementa en cada paso del prellenado externo (p. ej. al abrir el
   /// diálogo desde una cuota del Dashboard: cliente -> préstamo -> cuota),
   /// para forzar que el dropdown correspondiente se reconstruya con el
@@ -966,7 +972,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
             descripcionConcepto: concepto,
             metodoPago: _selectedMethod,
             referencia: referencia,
-            fechaEmision: DateTime.now(),
+            fechaEmision: _fechaPago,
           );
           break;
         case 'Liquidacion_Total':
@@ -975,7 +981,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
             descripcionConcepto: concepto,
             metodoPago: _selectedMethod,
             referencia: referencia,
-            fechaEmision: DateTime.now(),
+            fechaEmision: _fechaPago,
           );
           break;
         case 'Pago_Parcial':
@@ -985,7 +991,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
             descripcionConcepto: concepto,
             metodoPago: _selectedMethod,
             referencia: referencia,
-            fechaEmision: DateTime.now(),
+            fechaEmision: _fechaPago,
           );
           break;
         default:
@@ -995,7 +1001,7 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
             descripcionConcepto: concepto,
             metodoPago: _selectedMethod,
             referencia: referencia,
-            fechaEmision: DateTime.now(),
+            fechaEmision: _fechaPago,
           );
       }
 
@@ -1010,6 +1016,18 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
       setState(() => _isSaving = false);
       if (!mounted) return;
       _snack(e is NoConnectionException ? e.message : 'No se pudo registrar el movimiento. Intenta de nuevo.');
+    }
+  }
+
+  Future<void> _selectFechaPago() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _fechaPago,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() => _fechaPago = picked);
     }
   }
 
@@ -1290,6 +1308,24 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   filled: _tipoMovimiento == 'Liquidacion_Total' || _tipoMovimiento == 'Cuota_Ordinaria',
                   fillColor: Colors.grey.shade100,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Fecha del Pago: con esta queda registrado tanto el recibo
+              // como el pago (por defecto es hoy, pero se puede cambiar).
+              InkWell(
+                onTap: _selectFechaPago,
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Fecha del Pago',
+                    prefixIcon: const Icon(Icons.calendar_today_outlined, color: Colors.black),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: Text(
+                    '${_fechaPago.day.toString().padLeft(2, '0')}/${_fechaPago.month.toString().padLeft(2, '0')}/${_fechaPago.year}',
+                    style: const TextStyle(fontSize: 13, color: Colors.black87),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),

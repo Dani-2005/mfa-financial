@@ -17,7 +17,16 @@ Router buildReporteRouter() {
     if (modulo == null) return errorResponse('Falta el parámetro modulo.');
     final clienteIdStr = request.url.queryParameters['clienteId'];
     final clienteId = clienteIdStr != null ? int.tryParse(clienteIdStr) : null;
-    final filas = await _reporteService.fetchDatos(modulo: modulo, clienteId: clienteId);
+    final tipoAccion = request.url.queryParameters['tipoAccion'];
+    final fechaDesdeStr = request.url.queryParameters['fechaDesde'];
+    final fechaHastaStr = request.url.queryParameters['fechaHasta'];
+    final filas = await _reporteService.fetchDatos(
+      modulo: modulo,
+      clienteId: clienteId,
+      tipoAccion: tipoAccion,
+      fechaDesde: fechaDesdeStr != null ? DateTime.tryParse(fechaDesdeStr) : null,
+      fechaHasta: fechaHastaStr != null ? DateTime.tryParse(fechaHastaStr) : null,
+    );
     return jsonResponse({'filas': filas});
   });
 

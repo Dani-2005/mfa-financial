@@ -46,6 +46,23 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
   String _selectedReportClient = 'TODOS';
   List<String> _availableClients = const ['TODOS'];
   String? _clientesFiltroError;
+
+  // Filtro específico para el reporte de Auditoría: qué tipo de evento
+  // incluir. 'UPDATE' y 'LOGINS' se ven como dos opciones separadas para el
+  // usuario aunque ambas correspondan a `accion = 'UPDATE'` en la base de
+  // datos (el servidor las distingue por el contenido del evento).
+  String _selectedReportAuditAction = 'TODAS';
+  static const _auditActionOptions = {
+    'TODAS': 'Todas',
+    'INSERT': 'Crear',
+    'UPDATE': 'Actualizar',
+    'DESACTIVAR': 'Desactivar',
+    'LOGINS': 'Logins',
+  };
+  // Rango de fechas opcional para el reporte de Auditoría (acota cuántas
+  // filas trae, además del límite fijo de 500 que ya aplica el servidor).
+  DateTime? _auditFechaDesde;
+  DateTime? _auditFechaHasta;
   // Resuelve la etiqueta mostrada en el filtro ("documento - nombre") de
   // vuelta al cliente_id real, para poder filtrar la consulta del reporte.
   final Map<String, int> _clienteIdPorEtiqueta = {};
@@ -77,13 +94,18 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
       'Referencia / Método': true,
       'Fecha': true,
     },
+    // "Descripción" es la frase en lenguaje simple (p. ej. "Miguel registró
+    // un pago de $50.000 (recibo #123)"); las demás columnas son el detalle
+    // técnico crudo, así que quedan destildadas por defecto para que el
+    // reporte le sirva a alguien no técnico sin tener que tocar nada.
     'Auditoría': {
-      'ID Log': true,
-      'Tabla Afectada': true,
-      'Acción': true,
-      'Registro ID': true,
-      'Usuario Responsable': true,
       'Fecha Acción': true,
+      'Usuario Responsable': true,
+      'Descripción': true,
+      'Acción': false,
+      'Tabla Afectada': false,
+      'Registro ID': false,
+      'ID Log': false,
       'Snapshots JSON': false,
     },
   };
@@ -661,14 +683,28 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
             const SizedBox(height: 10),
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => _showAuditDetailsModal(context, log),
-                icon: const Icon(Icons.code, size: 14),
-                label: const Text('Ver Snapshots (JSON)', style: TextStyle(fontSize: 11)),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _showAuditDetailsModal(context, log),
+                    icon: const Icon(Icons.code, size: 14),
+                    label: const Text('Ver Snapshots (JSON)', style: TextStyle(fontSize: 11)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => _showAuditDescriptionModal(context, log),
+                    icon: const Icon(Icons.chat_bubble_outline, size: 14),
+                    label: const Text('Ver Descripción', style: TextStyle(fontSize: 11)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -708,6 +744,32 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
                 ),
               ],
             ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Igual que [_showAuditDetailsModal], pero en lenguaje simple: la frase
+  /// que ya se traduce en el servidor (`descripcionAuditoria`), pensada
+  /// para poder mostrarle este registro a alguien no técnico sin tener que
+  /// explicarle nombres de tablas ni JSON.
+  void _showAuditDescriptionModal(BuildContext context, Map<String, dynamic> log) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Descripción #${log['id']}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+        content: SizedBox(
+          width: 450,
+          child: Text(
+            (log['descripcion'] as String?) ?? 'Sin descripción disponible para este registro.',
+            style: const TextStyle(fontSize: 14),
           ),
         ),
         actions: [
@@ -843,6 +905,84 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
           ),
         ],
 
+        // ==========================================
+        // FILTRO CONDICIONAL: AUDITORÍA POR TIPO DE EVENTO
+        // ==========================================
+        if (_selectedReportModule == 'Auditoría') ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2))],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Filtro Opcional: Tipo de Evento',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Deje en "Todas" para incluir crear, actualizar, desactivar y logins juntos.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade800),
+                ),
+                const SizedBox(height: 10),
+                CustomDropdown<String>(
+                  initialValue: _selectedReportAuditAction,
+                  decoration: InputDecoration(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                  ),
+                  items: _auditActionOptions.entries.map((entry) {
+                    return CustomDropdownItem<String>(value: entry.key, label: entry.value);
+                  }).toList(),
+                  onChanged: (String? val) {
+                    if (val != null) setState(() => _selectedReportAuditAction = val);
+                  },
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Filtro Opcional: Rango de Fechas',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Deje vacío para no acotar por fecha (siempre trae como máximo los 500 registros más recientes).',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade800),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: _buildAuditDateField('Desde', _auditFechaDesde, () => _selectAuditFecha(esDesde: true))),
+                    const SizedBox(width: 10),
+                    Expanded(child: _buildAuditDateField('Hasta', _auditFechaHasta, () => _selectAuditFecha(esDesde: false))),
+                  ],
+                ),
+                if (_auditFechaDesde != null || _auditFechaHasta != null) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => setState(() {
+                        _auditFechaDesde = null;
+                        _auditFechaHasta = null;
+                      }),
+                      child: const Text('Quitar rango de fechas', style: TextStyle(fontSize: 12)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+
         const SizedBox(height: 16),
 
         // 2. Selector de Campos Dinámicos dentro del módulo
@@ -938,6 +1078,47 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
     );
   }
 
+  Widget _buildAuditDateField(String label, DateTime? value, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.calendar_today_outlined, size: 18, color: Colors.black),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+          filled: true,
+          fillColor: Colors.grey.shade50,
+        ),
+        child: Text(
+          value == null
+              ? '(sin definir)'
+              : '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}',
+          style: TextStyle(fontSize: 13, color: value == null ? Colors.grey.shade600 : Colors.black87),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectAuditFecha({required bool esDesde}) async {
+    final actual = esDesde ? _auditFechaDesde : _auditFechaHasta;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: actual ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked == null) return;
+    setState(() {
+      if (esDesde) {
+        _auditFechaDesde = picked;
+      } else {
+        _auditFechaHasta = picked;
+      }
+    });
+  }
+
   void _generarReporte(BuildContext context, String reportType) {
     final selectedFieldsMap = _reportModuleFields[reportType] ?? {};
     final activeFields = selectedFieldsMap.entries
@@ -956,6 +1137,19 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
         (reportType == 'Préstamos' || reportType == 'Pagos') && _selectedReportClient != 'TODOS';
     final clienteId = aplicaFiltroCliente ? _clienteIdPorEtiqueta[_selectedReportClient] : null;
 
+    final aplicaFiltroAccion = reportType == 'Auditoría' && _selectedReportAuditAction != 'TODAS';
+    final tipoAccion = aplicaFiltroAccion ? _selectedReportAuditAction : null;
+    final etiquetaAccion = aplicaFiltroAccion ? _auditActionOptions[_selectedReportAuditAction] : null;
+
+    final fechaDesde = reportType == 'Auditoría' ? _auditFechaDesde : null;
+    final fechaHasta = reportType == 'Auditoría' ? _auditFechaHasta : null;
+    String? etiquetaRango;
+    if (fechaDesde != null || fechaHasta != null) {
+      String fmt(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+      etiquetaRango = 'Desde ${fechaDesde != null ? fmt(fechaDesde) : '(sin definir)'} '
+          'hasta ${fechaHasta != null ? fmt(fechaHasta) : '(sin definir)'}';
+    }
+
     final nombreArchivo =
         'reporte_${reportType.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '_')}_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
@@ -964,12 +1158,20 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
       titulo: 'Reporte de $reportType',
       nombreArchivo: nombreArchivo,
       generarPdf: () async {
-        final filas = await _reporteService.fetchDatos(modulo: reportType, clienteId: clienteId);
+        final filas = await _reporteService.fetchDatos(
+          modulo: reportType,
+          clienteId: clienteId,
+          tipoAccion: tipoAccion,
+          fechaDesde: fechaDesde,
+          fechaHasta: fechaHasta,
+        );
         return ReportePdfService.generar(
           modulo: reportType,
           columnas: activeFields,
           filas: filas,
           filtroCliente: aplicaFiltroCliente ? _selectedReportClient : null,
+          filtroTipoAccion: etiquetaAccion,
+          filtroRangoFechas: etiquetaRango,
         );
       },
       infoContent: Column(
@@ -981,6 +1183,14 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
           if (aplicaFiltroCliente) ...[
             const SizedBox(height: 4),
             Text('Cliente: $_selectedReportClient', style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+          ],
+          if (aplicaFiltroAccion) ...[
+            const SizedBox(height: 4),
+            Text('Tipo de Evento: $etiquetaAccion', style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+          ],
+          if (etiquetaRango != null) ...[
+            const SizedBox(height: 4),
+            Text(etiquetaRango, style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
           ],
         ],
       ),

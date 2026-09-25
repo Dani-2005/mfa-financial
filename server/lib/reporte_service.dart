@@ -1,3 +1,4 @@
+import 'auditoria_descripcion.dart';
 import 'database_service.dart';
 
 /// Arma los datos reales para el Centro de Generación de Reportes de
@@ -8,6 +9,9 @@ class ReporteService {
   Future<List<Map<String, dynamic>>> fetchDatos({
     required String modulo,
     int? clienteId,
+    String? tipoAccion,
+    DateTime? fechaDesde,
+    DateTime? fechaHasta,
   }) async {
     switch (modulo) {
       case 'Clientes':
@@ -17,7 +21,7 @@ class ReporteService {
       case 'Pagos':
         return _fetchPagos(clienteId);
       case 'Auditoría':
-        return _fetchAuditoria();
+        return _fetchAuditoria(tipoAccion, fechaDesde, fechaHasta);
       default:
         return [];
     }
@@ -87,21 +91,77 @@ class ReporteService {
     }).toList();
   }
 
-  Future<List<Map<String, dynamic>>> _fetchAuditoria() async {
+  /// [tipoAccion] filtra el reporte por tipo de evento: null/'TODAS' no
+  /// filtra; 'INSERT'/'DESACTIVAR' filtran por esa columna `accion` tal
+  /// cual. 'UPDATE' y 'LOGINS' se distinguen entre sí aunque ambos son
+  /// filas con `accion = 'UPDATE'`: los eventos de login (éxito, fallido o
+  /// por biometría) se registran así porque técnicamente actualizan la fila
+  /// del usuario, pero conceptualmente son otra cosa, así que se separan
+  /// buscando la palabra "login" dentro del JSON de `datos_nuevos`.
+  ///
+  /// [fechaDesde]/[fechaHasta] acotan por `fecha_accion` (inclusive en
+  /// ambos extremos) — pensado para que el reporte no salga con miles de
+  /// páginas cuando la bitácora crece; se combinan con el límite fijo de
+  /// 500 filas, que sigue aplicando igual como último resguardo.
+  Future<List<Map<String, dynamic>>> _fetchAuditoria(
+    String? tipoAccion,
+    DateTime? fechaDesde,
+    DateTime? fechaHasta,
+  ) async {
+    final condiciones = <String>[];
+    final params = <String, dynamic>{};
+
+    switch (tipoAccion) {
+      case 'INSERT':
+      case 'DESACTIVAR':
+        condiciones.add('accion = :accion');
+        params['accion'] = tipoAccion;
+        break;
+      case 'UPDATE':
+        condiciones.add("accion = 'UPDATE' AND (datos_nuevos IS NULL OR datos_nuevos NOT LIKE '%login%')");
+        break;
+      case 'LOGINS':
+        condiciones.add("accion = 'UPDATE' AND datos_nuevos LIKE '%login%'");
+        break;
+    }
+    if (fechaDesde != null) {
+      condiciones.add('fecha_accion >= :fechaDesde');
+      params['fechaDesde'] = _formatFechaSql(fechaDesde);
+    }
+    if (fechaHasta != null) {
+      // El final de ese día completo, no la medianoche con la que arranca.
+      condiciones.add('fecha_accion <= :fechaHasta');
+      params['fechaHasta'] = _formatFechaSql(fechaHasta.add(const Duration(hours: 23, minutes: 59, seconds: 59)));
+    }
+    final whereClause = condiciones.isEmpty ? '' : 'WHERE ${condiciones.join(' AND ')} ';
+
     final result = await DatabaseService.instance.query(
       'SELECT auditoriaSistema_id, tabla_afectada, accion, registro_id, usuario_responsable, fecha_accion, '
       'datos_anteriores, datos_nuevos '
-      'FROM auditoria_sistema ORDER BY fecha_accion DESC LIMIT 500',
+      'FROM auditoria_sistema ${whereClause}ORDER BY fecha_accion DESC LIMIT 500',
+      params.isEmpty ? null : params,
     );
     return result.rows.map((row) {
       final f = row.typedAssoc();
+      final tabla = f['tabla_afectada'] as String;
+      final accion = f['accion'] as String;
+      final registroId = f['registro_id'] as String;
+      final usuario = (f['usuario_responsable'] as String?) ?? 'N/A';
+      final nuevos = auditoriaAsMap(f['datos_nuevos']);
       return {
         'ID Log': '${f['auditoriaSistema_id']}',
-        'Tabla Afectada': f['tabla_afectada'],
-        'Acción': f['accion'],
-        'Registro ID': f['registro_id'],
-        'Usuario Responsable': f['usuario_responsable'] ?? 'N/A',
+        'Tabla Afectada': tabla,
+        'Acción': accion,
+        'Registro ID': registroId,
+        'Usuario Responsable': usuario,
         'Fecha Acción': _formatFechaHora(f['fecha_accion'] as DateTime),
+        'Descripción': descripcionAuditoria(
+          tabla: tabla,
+          accion: accion,
+          registroId: registroId,
+          usuario: usuario,
+          nuevos: nuevos,
+        ),
         'Snapshots JSON': _resumenJson(f['datos_anteriores'], f['datos_nuevos']),
       };
     }).toList();
@@ -140,5 +200,10 @@ class ReporteService {
 
   String _formatFechaHora(DateTime date) {
     return '${_formatDate(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatFechaSql(DateTime date) {
+    String dos(int n) => n.toString().padLeft(2, '0');
+    return '${date.year}-${dos(date.month)}-${dos(date.day)} ${dos(date.hour)}:${dos(date.minute)}:${dos(date.second)}';
   }
 }

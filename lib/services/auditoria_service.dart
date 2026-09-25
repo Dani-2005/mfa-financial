@@ -28,6 +28,7 @@ class AuditoriaService {
         'datos_nuevos': _prettyJson(fields['datos_nuevos']),
         'fecha_accion': fecha == null ? '' : _formatFecha(fecha),
         'usuario_responsable': fields['usuario_responsable'],
+        'descripcion': fields['descripcion'],
       };
     }).toList();
   }

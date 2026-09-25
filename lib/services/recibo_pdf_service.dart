@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -17,6 +18,7 @@ class ReciboPdfService {
   static Future<Uint8List> generar(Map<String, dynamic> detalle) async {
     final doc = pw.Document();
     final lineas = (detalle['lineas'] as List).cast<Map<String, dynamic>>();
+    final sello = await _buildSello();
 
     doc.addPage(
       pw.Page(
@@ -32,6 +34,8 @@ class ReciboPdfService {
               pw.SizedBox(height: 14),
               _buildTablaDetalle(lineas),
               _buildBalancePendiente(detalle['balance_pendiente'] as double),
+              pw.SizedBox(height: 24),
+              sello,
             ],
           );
         },
@@ -39,6 +43,56 @@ class ReciboPdfService {
     );
 
     return doc.save();
+  }
+
+  /// Sello con las dos huellas digitales y la firma del emisor, para
+  /// timbrar el recibo. Las imágenes son fijas (assets/sello_huella1.png,
+  /// assets/sello_huella2.png y assets/sello_firma.png), iguales en todos
+  /// los recibos.
+  static Future<pw.Widget> _buildSello() async {
+    final huella1Bytes = await rootBundle.load('assets/sello_huella1.png');
+    final huella2Bytes = await rootBundle.load('assets/sello_huella2.png');
+    final firmaBytes = await rootBundle.load('assets/sello_firma.png');
+    final huella1 = pw.MemoryImage(huella1Bytes.buffer.asUint8List());
+    final huella2 = pw.MemoryImage(huella2Bytes.buffer.asUint8List());
+    final firma = pw.MemoryImage(firmaBytes.buffer.asUint8List());
+
+    return pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.end,
+      children: [
+        pw.Column(
+          children: [
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                // La huella izquierda queda un poco más "alta" que la
+                // derecha dentro de su propio recorte (así salió en la
+                // foto original); este padding la baja para que ambas
+                // se vean a la misma altura.
+                pw.Padding(
+                  padding: const pw.EdgeInsets.only(top: 8),
+                  child: pw.Image(huella1, height: 70),
+                ),
+                pw.SizedBox(width: 6),
+                pw.Image(huella2, height: 70),
+              ],
+            ),
+            pw.SizedBox(height: 2),
+            pw.Container(width: 90, child: pw.Divider(color: PdfColors.grey600, height: 1)),
+            pw.Text('Huellas Digitales', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+          ],
+        ),
+        pw.SizedBox(width: 30),
+        pw.Column(
+          children: [
+            pw.Image(firma, height: 70),
+            pw.SizedBox(height: 2),
+            pw.Container(width: 90, child: pw.Divider(color: PdfColors.grey600, height: 1)),
+            pw.Text('Firma - $_emisorNombre', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+          ],
+        ),
+      ],
+    );
   }
 
   static pw.Widget _buildEncabezado(Map<String, dynamic> detalle) {

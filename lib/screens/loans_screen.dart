@@ -1116,7 +1116,8 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
           Text('Cliente: ${_loan['name']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
           const SizedBox(height: 4),
           Text(
-            'Incluye la tabla de cuotas completa y los movimientos de capital.',
+            'Incluye la tabla de cuotas completa, con los movimientos de capital resaltados '
+            'justo arriba de la cuota donde se aplican.',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
           ),
         ],
