@@ -22,6 +22,39 @@ class DashboardService {
     };
   }
 
+  Future<Map<String, dynamic>> fetchInteresesSummary() async {
+    final response = await ApiClient.instance.get('/api/dashboard/intereses-summary', headers: await _headers());
+    if (!response.ok) throw StateError('No se pudo cargar el resumen de intereses.');
+    return {
+      ...response.data,
+      'serie_mensual': (response.data['serie_mensual'] as List).map((v) => (v as num).toDouble()).toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> fetchCapitalPorAnio(int anio) async {
+    final response = await ApiClient.instance.get(
+      '/api/dashboard/capital-por-anio?anio=$anio',
+      headers: await _headers(),
+    );
+    if (!response.ok) throw StateError('No se pudo cargar el detalle de capital por año.');
+    return {
+      'meses': (response.data['meses'] as List).map((v) => (v as num).toDouble()).toList(),
+      'anios_disponibles': (response.data['anios_disponibles'] as List).map((v) => v as int).toList(),
+    };
+  }
+
+  Future<Map<String, dynamic>> fetchInteresesPorAnio(int anio) async {
+    final response = await ApiClient.instance.get(
+      '/api/dashboard/intereses-por-anio?anio=$anio',
+      headers: await _headers(),
+    );
+    if (!response.ok) throw StateError('No se pudo cargar el detalle de intereses por año.');
+    return {
+      'meses': (response.data['meses'] as List).map((v) => (v as num).toDouble()).toList(),
+      'anios_disponibles': (response.data['anios_disponibles'] as List).map((v) => v as int).toList(),
+    };
+  }
+
   Future<int> fetchPrestamosActivosCount() async {
     final response = await ApiClient.instance.get('/api/dashboard/prestamos-activos-count', headers: await _headers());
     if (!response.ok) throw StateError('No se pudo cargar el conteo de préstamos activos.');

@@ -77,6 +77,138 @@ class DashboardService {
     };
   }
 
+  /// Capital nuevo colocado en cada uno de los 12 meses de [anio] (misma
+  /// definición que la serie mensual de [fetchCapitalSummary], pero para el
+  /// año completo en vez de solo los últimos 6 meses corridos), junto con
+  /// la lista de años que sí tienen algún préstamo — para el selector de
+  /// año de la pantalla de detalle del dashboard.
+  Future<Map<String, dynamic>> fetchCapitalPorAnio(int anio) async {
+    final result = await DatabaseService.instance.query(
+      "SELECT capital_inicial, fecha_inicio FROM prestamos WHERE estado <> 'Anulado'",
+    );
+
+    final loans = result.rows.map((row) {
+      final f = row.typedAssoc();
+      return {
+        'capital': double.parse(f['capital_inicial'].toString()),
+        'fecha_inicio': f['fecha_inicio'] as DateTime,
+      };
+    }).toList();
+
+    final meses = List<double>.filled(12, 0);
+    for (final l in loans) {
+      final fecha = l['fecha_inicio'] as DateTime;
+      if (fecha.year == anio) {
+        meses[fecha.month - 1] += l['capital'] as double;
+      }
+    }
+
+    final aniosDisponibles = loans.map((l) => (l['fecha_inicio'] as DateTime).year).toSet().toList()..sort();
+    if (aniosDisponibles.isEmpty) aniosDisponibles.add(DateTime.now().year);
+
+    return {'meses': meses, 'anios_disponibles': aniosDisponibles};
+  }
+
+  /// Trae el total de intereses cobrados (acumulado hasta hoy) con su
+  /// variación porcentual contra el cierre del mes anterior, y por separado
+  /// una serie de "intereses cobrados por mes" (últimos 6 meses) para
+  /// graficar la tendencia, igual que [fetchCapitalSummary] pero sobre
+  /// ingresos por intereses en vez de capital colocado.
+  ///
+  /// Solo cuentan los recibos de tipo 'Cuota_Ordinaria' y 'Pago_Parcial':
+  /// son los únicos que cobran interés puro (ver la nota en
+  /// `PagoService.registrarPago` del servidor — una cuota ordinaria no
+  /// amortiza capital, así que todo lo que paga es interés). 'Abono_Capital'
+  /// y 'Liquidacion_Total' mueven o cierran el capital del préstamo, no son
+  /// ingreso por interés, así que se excluyen a propósito.
+  Future<Map<String, dynamic>> fetchInteresesSummary() async {
+    final result = await DatabaseService.instance.query(
+      "SELECT monto_total_pagado, fecha_emision FROM recibos_pagos "
+      "WHERE tipo_movimiento IN ('Cuota_Ordinaria', 'Pago_Parcial') AND activo = TRUE",
+    );
+
+    final pagos = result.rows.map((row) {
+      final f = row.typedAssoc();
+      return {
+        'monto': double.parse(f['monto_total_pagado'].toString()),
+        'fecha': f['fecha_emision'] as DateTime,
+      };
+    }).toList();
+
+    double totalHasta(DateTime limite) {
+      return pagos.where((p) => !(p['fecha'] as DateTime).isAfter(limite)).fold<double>(
+            0,
+            (sum, p) => sum + (p['monto'] as double),
+          );
+    }
+
+    final now = DateTime.now();
+    final totalActual = totalHasta(now);
+
+    final finMesPasado = DateTime(now.year, now.month, 1).subtract(const Duration(days: 1));
+    final totalMesPasado = totalHasta(finMesPasado);
+
+    double? porcentajeCambio;
+    if (totalMesPasado > 0) {
+      porcentajeCambio = ((totalActual - totalMesPasado) / totalMesPasado) * 100;
+    }
+
+    final serieInteresesMensual = <double>[];
+    for (int i = 5; i >= 0; i--) {
+      final mesRef = DateTime(now.year, now.month - i, 1);
+      final totalDelMes = pagos.where((p) {
+        final fecha = p['fecha'] as DateTime;
+        return fecha.year == mesRef.year && fecha.month == mesRef.month;
+      }).fold<double>(0, (sum, p) => sum + (p['monto'] as double));
+      serieInteresesMensual.add(totalDelMes);
+    }
+
+    bool? interesesCreciendo;
+    if (serieInteresesMensual.length >= 2) {
+      interesesCreciendo = serieInteresesMensual.last >= serieInteresesMensual[serieInteresesMensual.length - 2];
+    }
+
+    return {
+      'total_actual': totalActual,
+      'total_mes_pasado': totalMesPasado,
+      'porcentaje_cambio': porcentajeCambio,
+      'serie_mensual': serieInteresesMensual,
+      'intereses_creciendo': interesesCreciendo,
+    };
+  }
+
+  /// Intereses cobrados en cada uno de los 12 meses de [anio] (misma
+  /// definición que la serie mensual de [fetchInteresesSummary], pero para
+  /// el año completo), junto con la lista de años que sí tienen algún
+  /// recibo — para el selector de año de la pantalla de detalle.
+  Future<Map<String, dynamic>> fetchInteresesPorAnio(int anio) async {
+    final result = await DatabaseService.instance.query(
+      "SELECT monto_total_pagado, fecha_emision FROM recibos_pagos "
+      "WHERE tipo_movimiento IN ('Cuota_Ordinaria', 'Pago_Parcial') AND activo = TRUE",
+    );
+
+    final pagos = result.rows.map((row) {
+      final f = row.typedAssoc();
+      return {
+        'monto': double.parse(f['monto_total_pagado'].toString()),
+        'fecha': f['fecha_emision'] as DateTime,
+      };
+    }).toList();
+
+    final meses = List<double>.filled(12, 0);
+    for (final p in pagos) {
+      final fecha = p['fecha'] as DateTime;
+      if (fecha.year == anio) {
+        meses[fecha.month - 1] += p['monto'] as double;
+      }
+    }
+
+    final aniosDisponibles = pagos.map((p) => (p['fecha'] as DateTime).year).toSet().toList()..sort();
+    if (aniosDisponibles.isEmpty) aniosDisponibles.add(DateTime.now().year);
+
+    return {'meses': meses, 'anios_disponibles': aniosDisponibles};
+  }
+
   /// Préstamos que siguen en curso: no desactivados y sin cerrar (ni pagados
   /// ni anulados). Misma definición de "activo" usada en ClienteService.
   Future<int> fetchPrestamosActivosCount() async {

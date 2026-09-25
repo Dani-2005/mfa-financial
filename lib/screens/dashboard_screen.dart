@@ -21,6 +21,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double? _porcentajeCambio;
   List<double> _serieMensual = [];
   bool? _capitalNuevoCreciendo;
+  double? _totalIntereses;
+  double? _porcentajeCambioIntereses;
+  List<double> _serieInteresesMensual = [];
+  bool? _interesesCreciendo;
   int? _prestamosActivos;
   List<Map<String, dynamic>> _proximasCuotas = [];
   int _totalCuotasPendientes = 0;
@@ -42,12 +46,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final results = await Future.wait([
         _dashboardService.fetchCapitalSummary(),
+        _dashboardService.fetchInteresesSummary(),
         _dashboardService.fetchPrestamosActivosCount(),
         _dashboardService.fetchProximasCuotas(),
       ]);
       final capitalSummary = results[0] as Map<String, dynamic>;
-      final prestamosActivos = results[1] as int;
-      final proximasCuotas = results[2] as Map<String, dynamic>;
+      final interesesSummary = results[1] as Map<String, dynamic>;
+      final prestamosActivos = results[2] as int;
+      final proximasCuotas = results[3] as Map<String, dynamic>;
 
       if (!mounted) return;
       setState(() {
@@ -55,6 +61,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _porcentajeCambio = capitalSummary['porcentaje_cambio'] as double?;
         _serieMensual = capitalSummary['serie_mensual'] as List<double>;
         _capitalNuevoCreciendo = capitalSummary['capital_nuevo_creciendo'] as bool?;
+        _totalIntereses = interesesSummary['total_actual'] as double;
+        _porcentajeCambioIntereses = interesesSummary['porcentaje_cambio'] as double?;
+        _serieInteresesMensual = interesesSummary['serie_mensual'] as List<double>;
+        _interesesCreciendo = interesesSummary['intereses_creciendo'] as bool?;
         _prestamosActivos = prestamosActivos;
         _proximasCuotas = (proximasCuotas['proximas'] as List).cast<Map<String, dynamic>>();
         _totalCuotasPendientes = proximasCuotas['total_pendientes'] as int;
@@ -245,6 +255,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           _buildTotalCapitalCard(),
           const SizedBox(height: 12),
+          _buildInteresesCard(),
+          const SizedBox(height: 12),
           _buildActiveLoansCard(),
           const SizedBox(height: 24),
           _buildAlertsSection(),
@@ -266,6 +278,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 _buildTotalCapitalCard(),
                 const SizedBox(height: 16),
+                _buildInteresesCard(),
+                const SizedBox(height: 16),
                 _buildActiveLoansCard(),
               ],
             ),
@@ -282,7 +296,72 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // --- COMPONENTES ---
   Widget _buildTotalCapitalCard() {
-    return Container(
+    return _buildMetricCard(
+      titulo: 'CAPITAL TOTAL PRESTADO',
+      total: _totalCapital,
+      porcentajeCambio: _porcentajeCambio,
+      serieMensual: _serieMensual,
+      creciendo: _capitalNuevoCreciendo,
+      leyendaGrafica: 'Capital nuevo · 6 meses',
+      textoSinDatos: 'Nuevo este período',
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _MetricYearDetailScreen(
+            titulo: 'Capital Nuevo Colocado',
+            leyendaMes: 'Capital colocado',
+            fetchPorAnio: _dashboardService.fetchCapitalPorAnio,
+            formatMoney: _formatCurrency,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInteresesCard() {
+    return _buildMetricCard(
+      titulo: 'INTERESES TOTALES COBRADOS',
+      total: _totalIntereses,
+      porcentajeCambio: _porcentajeCambioIntereses,
+      serieMensual: _serieInteresesMensual,
+      creciendo: _interesesCreciendo,
+      leyendaGrafica: 'Intereses cobrados · 6 meses',
+      textoSinDatos: 'Cobrado este período',
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _MetricYearDetailScreen(
+            titulo: 'Intereses Cobrados',
+            leyendaMes: 'Intereses cobrados',
+            fetchPorAnio: _dashboardService.fetchInteresesPorAnio,
+            formatMoney: _formatCurrency,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Tarjeta genérica de métrica con gráfico de barras mensual: la usan
+  /// tanto el capital total prestado como los intereses totales cobrados,
+  /// que comparten exactamente la misma forma de dato (total acumulado +
+  /// variación vs. mes pasado + serie de los últimos 6 meses).
+  Widget _buildMetricCard({
+    required String titulo,
+    required double? total,
+    required double? porcentajeCambio,
+    required List<double> serieMensual,
+    required bool? creciendo,
+    required String leyendaGrafica,
+    required String textoSinDatos,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -298,7 +377,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Expanded(
                 child: Text(
-                  'CAPITAL TOTAL PRESTADO',
+                  titulo,
                   style: TextStyle(color: Colors.grey.shade800, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -348,14 +427,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             child: FittedBox(
                               fit: BoxFit.scaleDown,
                               child: Text(
-                                _formatCurrency(_totalCapital ?? 0),
+                                _formatCurrency(total ?? 0),
                                 style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.black),
                                 maxLines: 1,
                               ),
                             ),
                           ),
                           const SizedBox(height: 4),
-                          _buildVariacionLabel(),
+                          _buildVariacionLabel(
+                            total: total,
+                            porcentajeCambio: porcentajeCambio,
+                            textoSinDatos: textoSinDatos,
+                          ),
                         ],
                       ),
                     ),
@@ -367,13 +450,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           _CapitalBarChart(
-                            values: _serieMensual,
-                            isGrowing: _capitalNuevoCreciendo ?? true,
+                            values: serieMensual,
+                            isGrowing: creciendo ?? true,
                             formatMoney: _formatCurrency,
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Capital nuevo · 6 meses',
+                            leyendaGrafica,
                             style: TextStyle(fontSize: 9, color: Colors.grey.shade700),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -387,20 +470,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
         ],
       ),
+        ),
+      ),
     );
   }
 
-  Widget _buildVariacionLabel() {
-    if (_porcentajeCambio == null) {
+  Widget _buildVariacionLabel({
+    required double? total,
+    required double? porcentajeCambio,
+    required String textoSinDatos,
+  }) {
+    if (porcentajeCambio == null) {
       return Text(
-        _totalCapital != null && _totalCapital! > 0 ? 'Nuevo este período' : 'Sin datos del mes pasado',
+        total != null && total > 0 ? textoSinDatos : 'Sin datos del mes pasado',
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(color: Colors.grey.shade800, fontSize: 12),
       );
     }
 
-    final esPositivo = _porcentajeCambio! >= 0;
+    final esPositivo = porcentajeCambio >= 0;
     final signo = esPositivo ? '+' : '';
 
     return Row(
@@ -412,7 +501,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         const SizedBox(width: 4),
         Text(
-          '$signo${_porcentajeCambio!.toStringAsFixed(1)}%',
+          '$signo${porcentajeCambio.toStringAsFixed(1)}%',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -617,12 +706,24 @@ class _CapitalBarChart extends StatelessWidget {
   final List<double> values;
   final bool isGrowing;
   final String Function(double) formatMoney;
+  // Si no se dan, se calculan como "los últimos N meses hasta hoy" (uso
+  // original, en la tarjeta del dashboard). La pantalla de detalle por año
+  // sí las da explícitas (Ene..Dic de un año que puede no ser el actual).
+  final List<String>? labels;
+  final double height;
 
-  const _CapitalBarChart({required this.values, required this.isGrowing, required this.formatMoney});
+  const _CapitalBarChart({
+    required this.values,
+    required this.isGrowing,
+    required this.formatMoney,
+    this.labels,
+    this.height = 100,
+  });
 
   static const _mesesAbrev = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
   List<String> _etiquetas() {
+    if (labels != null) return labels!;
     final ahora = DateTime.now();
     return List.generate(values.length, (i) {
       final offset = values.length - 1 - i;
@@ -634,7 +735,7 @@ class _CapitalBarChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (values.length < 2) {
-      return const SizedBox(height: 100);
+      return SizedBox(height: height);
     }
 
     final color = isGrowing ? Colors.teal.shade600 : Colors.red.shade600;
@@ -643,7 +744,7 @@ class _CapitalBarChart extends StatelessWidget {
     final maxEje = maxValor <= 0 ? 1.0 : maxValor * 1.25;
 
     return SizedBox(
-      height: 100,
+      height: height,
       child: BarChart(
         BarChartData(
           maxY: maxEje,
@@ -714,6 +815,215 @@ class _CapitalBarChart extends StatelessWidget {
               ],
             );
           }),
+        ),
+      ),
+    );
+  }
+}
+
+/// Detalle de una métrica del dashboard (capital colocado o intereses
+/// cobrados) mes a mes, para un año elegido con un selector — a diferencia
+/// de la tarjeta chica, que siempre muestra los últimos 6 meses corridos
+/// sin importar el año. Se abre al tocar la tarjeta correspondiente.
+class _MetricYearDetailScreen extends StatefulWidget {
+  final String titulo;
+  final String leyendaMes;
+  final Future<Map<String, dynamic>> Function(int anio) fetchPorAnio;
+  final String Function(double) formatMoney;
+
+  const _MetricYearDetailScreen({
+    required this.titulo,
+    required this.leyendaMes,
+    required this.fetchPorAnio,
+    required this.formatMoney,
+  });
+
+  @override
+  State<_MetricYearDetailScreen> createState() => _MetricYearDetailScreenState();
+}
+
+class _MetricYearDetailScreenState extends State<_MetricYearDetailScreen> {
+  static const _mesesNombre = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+  ];
+  static const _mesesAbrev = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+  int _anioSeleccionado = DateTime.now().year;
+  List<int> _aniosDisponibles = [DateTime.now().year];
+  List<double> _meses = List.filled(12, 0);
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar(_anioSeleccionado);
+  }
+
+  Future<void> _cargar(int anio) async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final datos = await widget.fetchPorAnio(anio);
+      if (!mounted) return;
+      final anios = datos['anios_disponibles'] as List<int>;
+      setState(() {
+        _meses = datos['meses'] as List<double>;
+        // El año elegido siempre queda como opción, aunque no tenga datos
+        // todavía (ej. el año actual recién empezando).
+        _aniosDisponibles = {...anios, anio}.toList()..sort();
+        _anioSeleccionado = anio;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e is NoConnectionException ? e.message : 'No se pudo cargar el detalle.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _meses.fold<double>(0, (sum, v) => sum + v);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F5),
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        elevation: 0,
+        title: Text(widget.titulo, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 700),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Año', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
+                        DropdownButton<int>(
+                          value: _anioSeleccionado,
+                          underline: const SizedBox(),
+                          items: _aniosDisponibles
+                              .map((a) => DropdownMenuItem(value: a, child: Text('$a', style: const TextStyle(fontSize: 14))))
+                              .toList(),
+                          onChanged: _isLoading ? null : (a) {
+                            if (a != null && a != _anioSeleccionado) _cargar(a);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_isLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 60),
+                      child: Center(child: CircularProgressIndicator(color: Colors.black)),
+                    )
+                  else if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 40),
+                      child: Column(
+                        children: [
+                          Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade800, fontSize: 12)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: () => _cargar(_anioSeleccionado),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.black),
+                            child: const Text('Reintentar', style: TextStyle(color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                    )
+                  else ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.grey.shade300),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'TOTAL $_anioSeleccionado',
+                            style: TextStyle(color: Colors.grey.shade800, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.formatMoney(total),
+                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.black),
+                          ),
+                          const SizedBox(height: 20),
+                          _CapitalBarChart(
+                            values: _meses,
+                            isGrowing: true,
+                            formatMoney: widget.formatMoney,
+                            labels: _mesesAbrev,
+                            height: 220,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Column(
+                        children: [
+                          for (int i = 0; i < 12; i++) ...[
+                            if (i > 0) Divider(height: 1, color: Colors.grey.shade200),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(_mesesNombre[i], style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                                  Text(
+                                    widget.formatMoney(_meses[i]),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: _meses[i] > 0 ? Colors.black : Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
