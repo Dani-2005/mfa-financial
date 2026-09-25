@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 
@@ -7,10 +8,12 @@ import '../services/auth_service.dart';
 /// Envuelve la app ya autenticada para hacer cumplir el cierre de sesión
 /// automático: 30 minutos sin ninguna interacción (mouse/touch) mientras la
 /// app está abierta, o 30 minutos transcurridos desde que la app pasó a
-/// segundo plano/se cerró. También revalida periódicamente contra la base
-/// de datos para detectar si la cuenta inició sesión en otro dispositivo
-/// (lo que reemplaza el token de esta sesión), y en ese caso también fuerza
-/// el cierre de sesión.
+/// segundo plano/se cerró. También revalida periódicamente contra el
+/// servidor para detectar si esta sesión ya no es válida (expiró, se cerró
+/// desde el servidor o la cuenta se desactivó), y en ese caso también
+/// fuerza el cierre de sesión. Otras sesiones de la misma cuenta en otros
+/// dispositivos no la afectan. Cerrar la app en escritorio (X o Cmd+Q) también
+/// cierra la sesión, ver [_SessionActivityGuardState.didRequestAppExit].
 ///
 /// Cualquiera de estos motivos dispara [onSessionEnded], que quien lo use
 /// (normalmente el `AuthGate`) debe traducir en volver a la pantalla de
@@ -67,6 +70,23 @@ class _SessionActivityGuardState extends State<SessionActivityGuard> with Widget
         _checkStillValid();
         break;
     }
+  }
+
+  /// Se llama en escritorio (macOS/Windows) cuando el usuario cierra la
+  /// ventana con la X o sale con Cmd+Q: se cierra la sesión en el servidor
+  /// antes de salir, para que la cuenta no quede "activa" y bloquee el
+  /// login desde otro dispositivo hasta que expire sola. El timeout evita
+  /// que la ventana tarde en cerrarse si no hay conexión; en ese caso la
+  /// sesión expira en el servidor a los 30 minutos igual que antes.
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    if (!_ended) {
+      _ended = true;
+      try {
+        await AuthService.instance.logout().timeout(const Duration(seconds: 3));
+      } catch (_) {}
+    }
+    return AppExitResponse.exit;
   }
 
   void _resetInactivityTimer() {
