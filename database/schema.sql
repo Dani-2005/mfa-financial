@@ -29,40 +29,43 @@ CREATE TABLE usuarios (
 
 -- ------------------------------------------------------------
 -- Tabla: sesiones
--- Una sola fila por usuario (usuario_id es la PK): al iniciar sesión se
--- reemplaza (UPSERT) el token de cualquier sesión anterior del mismo
--- usuario, lo que la invalida de inmediato en cualquier otro dispositivo
--- donde estuviera abierta (solo una sesión activa por cuenta). Nunca se
--- guarda el token real, solo su hash SHA-256; el token en sí vive
--- únicamente cifrado en el dispositivo (flutter_secure_storage).
+-- Una fila por sesión abierta (por dispositivo): la misma cuenta puede
+-- tener varias sesiones activas a la vez, y cada una se valida, desliza y
+-- cierra por separado con su propio token. Nunca se guarda el token real,
+-- solo su hash SHA-256; el token en sí vive únicamente cifrado en el
+-- dispositivo (flutter_secure_storage).
 -- expira_en implementa el cierre de sesión por 30 min de inactividad:
 -- cada verificación de actividad la desliza hacia adelante, y si ya pasó
--- la sesión se considera terminada.
+-- la sesión se considera terminada. Las vencidas de un usuario se borran
+-- cada vez que ese usuario abre una sesión nueva.
 -- ------------------------------------------------------------
 CREATE TABLE sesiones (
-    usuario_id INT PRIMARY KEY,
-    token_hash CHAR(64) NOT NULL,
+    sesion_id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
     creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expira_en DATETIME NOT NULL,
+    INDEX idx_sesiones_usuario (usuario_id),
     FOREIGN KEY (usuario_id) REFERENCES usuarios(usuario_id) ON DELETE CASCADE
 );
 
 -- ------------------------------------------------------------
 -- Tabla: recordar_dispositivo
 -- Credencial de más larga duración (deslizante, ~30 días) para el
--- desbloqueo con huella/Face ID: cuando la sesión activa de `sesiones`
--- expira o se cierra, si existe una fila vigente aquí para el usuario, la
--- app puede pedir solo la biometría (en vez de usuario/contraseña) y, si
--- el sistema operativo la confirma, generar una sesión nueva. Igual que
--- `sesiones`, nunca guarda la contraseña ni el token real, solo su hash;
--- una sola fila por usuario (mismo criterio de "un solo dispositivo
--- recordado" que la sesión única).
+-- desbloqueo con huella/Face ID: cuando la sesión de `sesiones` expira o
+-- se cierra, si este dispositivo tiene una fila vigente aquí, la app puede
+-- pedir solo la biometría (en vez de usuario/contraseña) y, si el sistema
+-- operativo la confirma, generar una sesión nueva. Igual que `sesiones`,
+-- nunca guarda la contraseña ni el token real, solo su hash; una fila por
+-- dispositivo recordado (varios por cuenta).
 -- ------------------------------------------------------------
 CREATE TABLE recordar_dispositivo (
-    usuario_id INT PRIMARY KEY,
-    token_hash CHAR(64) NOT NULL,
+    recordar_id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
     creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expira_en DATETIME NOT NULL,
+    INDEX idx_recordar_usuario (usuario_id),
     FOREIGN KEY (usuario_id) REFERENCES usuarios(usuario_id) ON DELETE CASCADE
 );
 
@@ -252,3 +255,4 @@ SELECT
     ) AS proxima_cuota_vencimiento
 FROM prestamos p
 WHERE p.activo = TRUE;
+
