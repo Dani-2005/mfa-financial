@@ -1125,6 +1125,58 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     );
   }
 
+  /// Abre el formulario de "Registrar Préstamo" pero prellenado con los
+  /// datos actuales de este préstamo, en modo edición. Si se guarda algo,
+  /// refresca tanto la tabla de cuotas como la tarjeta de resumen de arriba
+  /// (recapital/tasa/plazo pueden haber cambiado).
+  Future<void> _openEditarPrestamo() async {
+    final prestamoId = widget.loan['prestamo_id'] as int;
+    try {
+      final datos = await _prestamoService.fetchParaEditar(prestamoId);
+      if (!mounted) return;
+      final guardado = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => NewLoanFormScreen(existingLoan: datos, prestamoId: prestamoId),
+        ),
+      );
+      if (guardado == true) {
+        _loadCuotas();
+        _loadMovimientosCapital();
+        _refreshResumenPrestamo();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is NoConnectionException ? e.message : 'No se pudo cargar el préstamo para editar.',
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Vuelve a traer este préstamo desde el listado general para refrescar
+  /// la tarjeta de resumen (código, tipo, capital, tasa, fecha, etc.) con
+  /// el mismo formato de texto que ya usa esa tarjeta, tras una edición.
+  Future<void> _refreshResumenPrestamo() async {
+    try {
+      final prestamoId = widget.loan['prestamo_id'] as int;
+      final todos = await _prestamoService.fetchAll();
+      final actualizado = todos.firstWhere(
+        (p) => p['prestamo_id'] == prestamoId,
+        orElse: () => _loan,
+      );
+      if (!mounted) return;
+      setState(() => _loan = Map<String, dynamic>.from(actualizado));
+    } catch (_) {
+      // Si falla, la tarjeta se queda con los datos anteriores; no es
+      // crítico porque la tabla de cuotas (la que sí se recarga) ya
+      // refleja los términos nuevos.
+    }
+  }
+
   /// Abre el diálogo de "Inyectar Capital": el prestamista elige a partir
   /// de cuál cuota (entre las que todavía no se han cobrado/cerrado) se
   /// aplica el aumento de capital, y desde ahí se recalcula todo el resto
@@ -1852,6 +1904,29 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                         ),
                       ),
                     ),
+                    if (status != 'PAGADO')
+                      SizedBox(
+                        width: MediaQuery.sizeOf(context).width >= 800 ? 300 : null,
+                        child: OutlinedButton.icon(
+                          onPressed: _isLoadingCuotas ? null : _openEditarPrestamo,
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          label: const Text(
+                            'Editar Préstamo',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.black,
+                            side: const BorderSide(color: Colors.black),
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 28),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -2177,7 +2252,14 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
 }
 
 class NewLoanFormScreen extends StatefulWidget {
-  const NewLoanFormScreen({super.key});
+  /// Cuando se pasan ambos, la pantalla arranca en modo edición: prellena
+  /// el formulario con [existingLoan] (tal cual lo devuelve
+  /// `PrestamoService.fetchParaEditar`) y al guardar llama a
+  /// `PrestamoService.editar` sobre [prestamoId] en vez de crear uno nuevo.
+  final Map<String, dynamic>? existingLoan;
+  final int? prestamoId;
+
+  const NewLoanFormScreen({super.key, this.existingLoan, this.prestamoId});
 
   @override
   State<NewLoanFormScreen> createState() => _NewLoanFormScreenState();
@@ -2240,11 +2322,40 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
     });
   }
 
+  bool get _isEditMode => widget.existingLoan != null;
+
   @override
   void initState() {
     super.initState();
-    _loadCodigoReferencia();
+    if (_isEditMode) {
+      _prefillDesdeExistente(widget.existingLoan!);
+    } else {
+      _loadCodigoReferencia();
+    }
     _loadClientes();
+  }
+
+  void _prefillDesdeExistente(Map<String, dynamic> e) {
+    _codigoGenerado = e['codigoReferencia'] as String;
+    _codeController.text = _codigoGenerado!;
+    _selectedClienteId = e['clienteId'] as int;
+    _selectedTipoTasa = e['tipoTasa'] as String;
+    _selectedTipoCalculo = e['tipoCalculo'] as String;
+    _amountController.text = MoneyInputFormatter.format(e['capitalInicial'] as double);
+    _interestController.text = '${e['tasaInteresMensual']}';
+    _numeroCuotasController.text = '${e['numeroCuotas']}';
+    _selectedFrequency = e['frecuenciaPago'] as String;
+    _startDate = DateTime.parse(e['fechaInicio'] as String);
+    if (e['mesCambioTasa'] != null) {
+      _mesCambioController.text = '${e['mesCambioTasa']}';
+    }
+    if (e['nuevaTasaInteres'] != null) {
+      _newInterestController.text = '${e['nuevaTasaInteres']}';
+    }
+    if (e['mesCambioCapitalizacion'] != null) {
+      _esOperacionPorFases = true;
+      _cuotaTransicionCapController.text = '${e['mesCambioCapitalizacion']}';
+    }
   }
 
   Future<void> _loadCodigoReferencia() async {
@@ -2270,7 +2381,12 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
       final clientes = await _clienteService.fetchAll();
       if (!mounted) return;
       setState(() {
-        _clientes = clientes.where((c) => c['activo'] == true).toList();
+        // En modo edición se conserva el cliente actual del préstamo aunque
+        // ya esté inactivo, para que el dropdown no se quede sin una opción
+        // que coincida con el valor ya seleccionado.
+        _clientes = clientes
+            .where((c) => c['activo'] == true || (_isEditMode && c['cliente_id'] == _selectedClienteId))
+            .toList();
         _isLoadingClientes = false;
       });
     } catch (e) {
@@ -2325,17 +2441,45 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
 
     setState(() => _isSaving = true);
 
-    final movimientosPlanificados = _movimientos
-        .map(
-          (m) => MovimientoCapitalPlanificado(
-            periodoDesde: int.parse(m.periodoController.text),
-            esInyeccion: m.tipo == 'Inyeccion',
-            monto: MoneyInputFormatter.parse(m.montoController.text)!,
-          ),
-        )
-        .toList();
-
     try {
+      if (_isEditMode) {
+        await _prestamoService.editar(
+          prestamoId: widget.prestamoId!,
+          clienteId: _selectedClienteId!,
+          tipoTasa: _selectedTipoTasa,
+          tipoCalculo: _selectedTipoCalculo,
+          capitalInicial: MoneyInputFormatter.parse(_amountController.text)!,
+          tasaInteresMensual: double.parse(_interestController.text),
+          mesCambioTasa: esVariable ? int.parse(_mesCambioController.text) : null,
+          nuevaTasaInteres: esVariable
+              ? double.parse(_newInterestController.text)
+              : null,
+          mesCambioCapitalizacion: _esOperacionPorFases
+              ? int.parse(_cuotaTransicionCapController.text)
+              : null,
+          frecuenciaPago: _selectedFrequency,
+          fechaInicio: _startDate,
+          numeroCuotas: int.parse(_numeroCuotasController.text),
+        );
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Préstamo $_codigoGenerado actualizado exitosamente')),
+        );
+        Navigator.pop(context, true);
+        return;
+      }
+
+      final movimientosPlanificados = _movimientos
+          .map(
+            (m) => MovimientoCapitalPlanificado(
+              periodoDesde: int.parse(m.periodoController.text),
+              esInyeccion: m.tipo == 'Inyeccion',
+              monto: MoneyInputFormatter.parse(m.montoController.text)!,
+            ),
+          )
+          .toList();
+
       await _prestamoService.create(
         codigoReferencia: _codigoGenerado!,
         clienteId: _selectedClienteId!,
@@ -2393,9 +2537,9 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
-        title: const Text(
-          'Registrar Nuevo Préstamo',
-          style: TextStyle(
+        title: Text(
+          _isEditMode ? 'Editar Préstamo' : 'Registrar Nuevo Préstamo',
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 16,
             fontWeight: FontWeight.bold,
@@ -2434,6 +2578,33 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                       color: Colors.black,
                     ),
                   ),
+                  if (_isEditMode && widget.existingLoan!['tieneActividad'] == true) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.amber.shade300),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.warning_amber_rounded, size: 18, color: Colors.amber.shade800),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Este préstamo ya tiene pagos o movimientos registrados. Al guardar, el plan de '
+                              'cuotas se recalcula con los términos nuevos: las cuotas ya cobradas siguen '
+                              'marcadas como pagadas, pero su desglose de interés/capital puede cambiar. '
+                              'No se altera ningún recibo ya emitido.',
+                              style: TextStyle(fontSize: 11.5, color: Colors.amber.shade900),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
 
                   TextFormField(
@@ -2841,6 +3012,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                     ),
                   ],
 
+                  if (!_isEditMode) ...[
                   const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2969,6 +3141,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                       ),
                     ),
                   ],
+                  ],
 
                   const SizedBox(height: 30),
                   Row(
@@ -3014,9 +3187,9 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Text(
-                                  'Guardar Préstamo',
-                                  style: TextStyle(
+                              : Text(
+                                  _isEditMode ? 'Guardar Cambios' : 'Guardar Préstamo',
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                   ),

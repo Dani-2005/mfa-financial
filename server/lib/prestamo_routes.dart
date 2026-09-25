@@ -64,6 +64,47 @@ Router buildPrestamoRouter() {
     }
   });
 
+  router.get('/<id>/editar', (Request request, String id) async {
+    final user = await usuarioAutenticado(request);
+    if (user == null) return errorResponse('Sesión no válida.', status: 401);
+    final prestamoId = int.tryParse(id);
+    if (prestamoId == null) return errorResponse('Id inválido.');
+    try {
+      final datos = await _prestamoService.fetchParaEditar(prestamoId);
+      return jsonResponse(datos);
+    } on ArgumentError catch (e) {
+      return errorResponse('${e.message}');
+    }
+  });
+
+  router.put('/<id>', (Request request, String id) async {
+    final user = await usuarioAutenticado(request);
+    if (user == null) return errorResponse('Sesión no válida.', status: 401);
+    final prestamoId = int.tryParse(id);
+    if (prestamoId == null) return errorResponse('Id inválido.');
+    final body = await bodyJson(request);
+    try {
+      await _prestamoService.editar(
+        usuarioResponsable: user.nombreCompleto,
+        prestamoId: prestamoId,
+        clienteId: body['clienteId'] as int,
+        tipoTasa: body['tipoTasa'] as String,
+        tipoCalculo: body['tipoCalculo'] as String,
+        capitalInicial: (body['capitalInicial'] as num).toDouble(),
+        tasaInteresMensual: (body['tasaInteresMensual'] as num).toDouble(),
+        mesCambioTasa: body['mesCambioTasa'] as int?,
+        nuevaTasaInteres: (body['nuevaTasaInteres'] as num?)?.toDouble(),
+        mesCambioCapitalizacion: body['mesCambioCapitalizacion'] as int?,
+        frecuenciaPago: body['frecuenciaPago'] as String,
+        fechaInicio: DateTime.parse(body['fechaInicio'] as String),
+        numeroCuotas: body['numeroCuotas'] as int,
+      );
+      return jsonResponse({'ok': true});
+    } on ArgumentError catch (e) {
+      return errorResponse('${e.message}');
+    }
+  });
+
   router.get('/<id>/detalle', (Request request, String id) async {
     final user = await usuarioAutenticado(request);
     if (user == null) return errorResponse('Sesión no válida.', status: 401);

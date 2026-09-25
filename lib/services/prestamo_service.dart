@@ -139,6 +139,57 @@ class PrestamoService {
     }
   }
 
+  /// Datos crudos (sin formatear) del préstamo para prellenar el formulario
+  /// de edición, junto con `tieneActividad` (si ya tiene algún pago o
+  /// movimiento registrado, para avisar en la pantalla).
+  Future<Map<String, dynamic>> fetchParaEditar(int prestamoId) async {
+    final response = await ApiClient.instance.get(
+      '/api/prestamos/$prestamoId/editar',
+      headers: await _headers(),
+    );
+    if (!response.ok) _throwError(response, 'No se pudo cargar el préstamo para editar.');
+    return response.data;
+  }
+
+  /// Igual que [create], pero sobre un préstamo ya existente: recalcula el
+  /// cronograma completo con los términos nuevos sin tocar los pagos ya
+  /// registrados. No incluye movimientos de capital planificados porque los
+  /// ya registrados se vuelven a aplicar automáticamente del lado del
+  /// servidor; para nuevos movimientos se sigue usando "Inyectar Capital".
+  Future<void> editar({
+    required int prestamoId,
+    required int clienteId,
+    required String tipoTasa,
+    required String tipoCalculo,
+    required double capitalInicial,
+    required double tasaInteresMensual,
+    int? mesCambioTasa,
+    double? nuevaTasaInteres,
+    int? mesCambioCapitalizacion,
+    required String frecuenciaPago,
+    required DateTime fechaInicio,
+    required int numeroCuotas,
+  }) async {
+    final response = await ApiClient.instance.put(
+      '/api/prestamos/$prestamoId',
+      headers: await _headers(),
+      body: {
+        'clienteId': clienteId,
+        'tipoTasa': tipoTasa,
+        'tipoCalculo': tipoCalculo,
+        'capitalInicial': capitalInicial,
+        'tasaInteresMensual': tasaInteresMensual,
+        'mesCambioTasa': mesCambioTasa,
+        'nuevaTasaInteres': nuevaTasaInteres,
+        'mesCambioCapitalizacion': mesCambioCapitalizacion,
+        'frecuenciaPago': frecuenciaPago,
+        'fechaInicio': fechaInicio.toIso8601String(),
+        'numeroCuotas': numeroCuotas,
+      },
+    );
+    if (!response.ok) _throwError(response, 'No se pudo actualizar el préstamo.');
+  }
+
   Future<Map<String, dynamic>> fetchSaldoActual(int prestamoId) async {
     final response = await ApiClient.instance.get(
       '/api/prestamos/$prestamoId/saldo-actual',

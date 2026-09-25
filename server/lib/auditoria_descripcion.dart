@@ -31,6 +31,9 @@ String descripcionAuditoria({
       if (accion == 'DESACTIVAR') {
         return '$usuario liquidó y cerró el préstamo #$registroId.';
       }
+      if (nuevos?['evento'] == 'edicion de terminos') {
+        return '$usuario editó los términos del préstamo #$registroId.';
+      }
       if (nuevos?['evento'] == 'inyeccion de capital') {
         return '$usuario inyectó ${monto(nuevos?['monto_inyectado'])} de capital al préstamo #$registroId, '
             'a partir de la cuota ${nuevos?['periodo_desde']}.';

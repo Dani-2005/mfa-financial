@@ -516,6 +516,266 @@ class PrestamoService {
     return '$y-$m-$d';
   }
 
+  /// Trae los datos crudos (sin formatear) de un préstamo para prellenar el
+  /// formulario de edición, junto con si ya tiene actividad registrada
+  /// (algún pago o alguna cuota que ya no está en 'Pendiente'): la pantalla
+  /// usa eso para avisar que el cronograma se va a recalcular con los
+  /// términos nuevos, sin alterar los pagos ya cobrados.
+  Future<Map<String, dynamic>> fetchParaEditar(int prestamoId) async {
+    final result = await DatabaseService.instance.query(
+      'SELECT codigo_referencia, cliente_id, tipo_tasa, tipo_calculo, capital_inicial, '
+      'tasa_interes_mensual, mes_cambio_tasa, nueva_tasa_interes, mes_cambio_capitalizacion, '
+      'frecuencia_pago, fecha_inicio, numero_cuotas, estado, activo '
+      'FROM prestamos WHERE prestamo_id = :id',
+      {'id': prestamoId},
+    );
+    if (result.rows.isEmpty) {
+      throw ArgumentError.value(prestamoId, 'prestamoId', 'El préstamo no existe');
+    }
+    final f = result.rows.first.typedAssoc();
+    if (!(f['activo'] as bool) || f['estado'] == 'Pagado') {
+      throw ArgumentError('Este préstamo ya está finalizado/liquidado, no se puede editar.');
+    }
+
+    final actividad = await DatabaseService.instance.query(
+      'SELECT '
+      '(SELECT COUNT(*) FROM recibos_pagos WHERE prestamo_id = :id) AS recibos, '
+      "(SELECT COUNT(*) FROM cuotas WHERE prestamo_id = :id AND estado <> 'Pendiente') AS cuotasNoPendientes",
+      {'id': prestamoId},
+    );
+    final a = actividad.rows.first.typedAssoc();
+    final tieneActividad = (a['recibos'] as int) > 0 || (a['cuotasNoPendientes'] as int) > 0;
+
+    final nuevaTasa = f['nueva_tasa_interes'];
+    return {
+      'codigoReferencia': f['codigo_referencia'],
+      'clienteId': f['cliente_id'],
+      'tipoTasa': f['tipo_tasa'],
+      'tipoCalculo': f['tipo_calculo'],
+      'capitalInicial': _toDouble(f['capital_inicial']),
+      'tasaInteresMensual': _toDouble(f['tasa_interes_mensual']),
+      'mesCambioTasa': f['mes_cambio_tasa'],
+      'nuevaTasaInteres': nuevaTasa == null ? null : _toDouble(nuevaTasa),
+      'mesCambioCapitalizacion': f['mes_cambio_capitalizacion'],
+      'frecuenciaPago': f['frecuencia_pago'],
+      'fechaInicio': _formatDate(f['fecha_inicio'] as DateTime),
+      'numeroCuotas': f['numero_cuotas'],
+      'tieneActividad': tieneActividad,
+    };
+  }
+
+  /// Edita los términos de un préstamo ya existente: recalcula el
+  /// cronograma completo desde el periodo 1 con los datos nuevos (misma
+  /// fórmula que [create], vía [LoanCalculator.generarCronograma]), pero en
+  /// vez de insertar cuotas nuevas, ACTUALIZA las que ya existen período por
+  /// período sin tocar su `estado`/pago acumulado — así un pago ya cobrado
+  /// sigue marcado como cobrado aunque el monto de interés/capital de ese
+  /// período se recalcule con la tasa o el capital nuevos. Los movimientos
+  /// de capital ya registrados (`transacciones_capital`) se vuelven a
+  /// aplicar en el nuevo cronograma en su mismo período, así que no se
+  /// pierden. Si se reduce el número de cuotas por debajo de un período que
+  /// ya tiene un pago registrado, se rechaza: ese pago quedaría sin cuota a
+  /// la cual pertenecer.
+  Future<void> editar({
+    required String usuarioResponsable,
+    required int prestamoId,
+    required int clienteId,
+    required String tipoTasa,
+    required String tipoCalculo,
+    required double capitalInicial,
+    required double tasaInteresMensual,
+    int? mesCambioTasa,
+    double? nuevaTasaInteres,
+    int? mesCambioCapitalizacion,
+    required String frecuenciaPago,
+    required DateTime fechaInicio,
+    required int numeroCuotas,
+  }) async {
+    if (tipoTasa != 'Fija' && tipoTasa != 'Variable') {
+      throw ArgumentError.value(tipoTasa, 'tipoTasa', "Debe ser 'Fija' o 'Variable'");
+    }
+    if (tipoCalculo != 'Simple' && tipoCalculo != 'Compuesto') {
+      throw ArgumentError.value(tipoCalculo, 'tipoCalculo', "Debe ser 'Simple' o 'Compuesto'");
+    }
+    if (tipoTasa == 'Fija' && (mesCambioTasa != null || nuevaTasaInteres != null)) {
+      throw ArgumentError("Un préstamo de tasa 'Fija' no puede tener mesCambioTasa/nuevaTasaInteres");
+    }
+    if (tipoTasa == 'Variable' && (mesCambioTasa == null || nuevaTasaInteres == null)) {
+      throw ArgumentError("Un préstamo de tasa 'Variable' requiere mesCambioTasa y nuevaTasaInteres");
+    }
+    if (mesCambioCapitalizacion != null && tipoCalculo != 'Compuesto') {
+      throw ArgumentError("La operación por fases (mesCambioCapitalizacion) solo aplica si tipoCalculo es 'Compuesto'");
+    }
+
+    final actual = await DatabaseService.instance.query(
+      'SELECT codigo_referencia, numero_cuotas, estado, activo FROM prestamos WHERE prestamo_id = :id',
+      {'id': prestamoId},
+    );
+    if (actual.rows.isEmpty) {
+      throw ArgumentError.value(prestamoId, 'prestamoId', 'El préstamo no existe');
+    }
+    final actualF = actual.rows.first.typedAssoc();
+    if (!(actualF['activo'] as bool) || actualF['estado'] == 'Pagado') {
+      throw ArgumentError('Este préstamo ya está finalizado/liquidado, no se puede editar.');
+    }
+    final codigoReferencia = actualF['codigo_referencia'] as String;
+    final numeroCuotasAnterior = actualF['numero_cuotas'] as int;
+
+    final protegido = await DatabaseService.instance.query(
+      "SELECT MAX(numero_periodo) AS maxProtegido FROM cuotas WHERE prestamo_id = :id AND estado <> 'Pendiente'",
+      {'id': prestamoId},
+    );
+    final maxProtegido = protegido.rows.first.typedAssoc()['maxProtegido'] as int?;
+    if (maxProtegido != null && numeroCuotas < maxProtegido) {
+      throw ArgumentError(
+        'No se puede reducir el préstamo a $numeroCuotas cuotas: la cuota $maxProtegido ya tiene un pago '
+        'registrado. Para reducir el plazo, primero habría que revertir ese pago.',
+      );
+    }
+
+    // Los movimientos de capital ya registrados (incluyendo los planificados
+    // desde la creación) se vuelven a aplicar en el cronograma recalculado,
+    // en su mismo período — si el nuevo número de cuotas queda por debajo de
+    // alguno de esos períodos, generarCronograma lo rechaza más abajo.
+    final movimientosRows = await DatabaseService.instance.query(
+      'SELECT tipo, periodo_aplicacion, monto FROM transacciones_capital '
+      'WHERE prestamo_id = :id AND activo = TRUE AND periodo_aplicacion IS NOT NULL '
+      'ORDER BY periodo_aplicacion',
+      {'id': prestamoId},
+    );
+    final movimientos = movimientosRows.rows.map((row) {
+      final f = row.typedAssoc();
+      return MovimientoCapitalPlanificado(
+        periodoDesde: f['periodo_aplicacion'] as int,
+        esInyeccion: f['tipo'] == 'Inyeccion',
+        monto: _toDouble(f['monto']),
+      );
+    }).toList();
+
+    final capitaliza = tipoCalculo == 'Compuesto';
+    final esOperacionPorFases = mesCambioCapitalizacion != null;
+
+    // Igual que en create(): se calcula todo el cronograma nuevo ANTES de
+    // tocar la base de datos, para no dejar nada a medias si falla.
+    final cronograma = LoanCalculator.generarCronograma(
+      capitaliza: capitaliza,
+      capitalInicial: capitalInicial,
+      tasaInicial: tasaInteresMensual,
+      nuevaTasa: nuevaTasaInteres,
+      mesCambioTasa: mesCambioTasa,
+      mesCambioCapitalizacion: mesCambioCapitalizacion,
+      numeroCuotas: numeroCuotas,
+      frecuenciaPago: frecuenciaPago,
+      fechaInicio: fechaInicio,
+      movimientosPlanificados: movimientos,
+    );
+
+    await DatabaseService.instance.query(
+      'UPDATE prestamos SET cliente_id = :clienteId, tipo_tasa = :tipoTasa, tipo_calculo = :tipoCalculo, '
+      'capital_inicial = :capital, tasa_interes_mensual = :tasa, mes_cambio_tasa = :mesCambio, '
+      'nueva_tasa_interes = :nuevaTasa, mes_cambio_capitalizacion = :mesCambioCap, '
+      'frecuencia_pago = :frecuencia, fecha_inicio = :fechaInicio, numero_cuotas = :numeroCuotas, '
+      'estado = :estado WHERE prestamo_id = :id',
+      {
+        'clienteId': clienteId,
+        'tipoTasa': tipoTasa,
+        'tipoCalculo': tipoCalculo,
+        'capital': capitalInicial,
+        'tasa': tasaInteresMensual,
+        'mesCambio': mesCambioTasa,
+        'nuevaTasa': nuevaTasaInteres,
+        'mesCambioCap': mesCambioCapitalizacion,
+        'frecuencia': frecuenciaPago,
+        'fechaInicio': _formatDate(fechaInicio),
+        'numeroCuotas': numeroCuotas,
+        'estado': esOperacionPorFases ? 'Acumulacion' : 'Activo',
+        'id': prestamoId,
+      },
+    );
+
+    for (final cuota in cronograma) {
+      final periodo = cuota['numero_periodo'] as int;
+      final capitalizado = cuota['interes_capitalizado'] as bool;
+      if (periodo <= numeroCuotasAnterior) {
+        // Se actualiza el período existente sin tocar estado/monto pagado:
+        // si ya se cobró, sigue cobrado, aunque el desglose interés/capital
+        // de ese período cambie con los nuevos términos.
+        await DatabaseService.instance.query(
+          'UPDATE cuotas SET fecha_vencimiento = :fecha, saldo_inicio_periodo = :saldoInicio, '
+          'tasa_aplicada = :tasa, monto_interes_generado = :interes, interes_capitalizado = :capitalizado, '
+          'saldo_fin_periodo = :saldoFin WHERE prestamo_id = :prestamoId AND numero_periodo = :periodo',
+          {
+            'fecha': _formatDate(cuota['fecha_vencimiento'] as DateTime),
+            'saldoInicio': cuota['saldo_inicio_periodo'],
+            'tasa': cuota['tasa_aplicada'],
+            'interes': cuota['monto_interes_generado'],
+            'capitalizado': capitalizado,
+            'saldoFin': cuota['saldo_fin_periodo'],
+            'prestamoId': prestamoId,
+            'periodo': periodo,
+          },
+        );
+      } else {
+        await DatabaseService.instance.query(
+          'INSERT INTO cuotas '
+          '(prestamo_id, numero_periodo, fecha_vencimiento, saldo_inicio_periodo, tasa_aplicada, '
+          'monto_interes_generado, monto_capital_amortizado, interes_capitalizado, saldo_fin_periodo, estado) '
+          'VALUES (:prestamoId, :numeroPeriodo, :fechaVencimiento, :saldoInicio, :tasa, '
+          ':interes, :amortizado, :capitalizado, :saldoFin, :estado)',
+          {
+            'prestamoId': prestamoId,
+            'numeroPeriodo': periodo,
+            'fechaVencimiento': _formatDate(cuota['fecha_vencimiento'] as DateTime),
+            'saldoInicio': cuota['saldo_inicio_periodo'],
+            'tasa': cuota['tasa_aplicada'],
+            'interes': cuota['monto_interes_generado'],
+            'amortizado': cuota['monto_capital_amortizado'],
+            'capitalizado': capitalizado,
+            'saldoFin': cuota['saldo_fin_periodo'],
+            'estado': capitalizado ? 'Pagado' : 'Pendiente',
+          },
+        );
+      }
+    }
+
+    if (numeroCuotas < numeroCuotasAnterior) {
+      // Seguro por el check de más arriba (ninguno de estos períodos tiene
+      // pago), pero además la propia base de datos lo bloquearía si lo
+      // tuviera (FK de recibos_pagos.cuota_id).
+      await DatabaseService.instance.query(
+        'DELETE FROM cuotas WHERE prestamo_id = :id AND numero_periodo > :numeroCuotas',
+        {'id': prestamoId, 'numeroCuotas': numeroCuotas},
+      );
+    }
+
+    final saldoInfo = await fetchSaldoActual(prestamoId);
+    await DatabaseService.instance.query(
+      'UPDATE prestamos SET balance_actual = :saldo WHERE prestamo_id = :id',
+      {'saldo': saldoInfo['saldoActual'], 'id': prestamoId},
+    );
+
+    await _auditoria.log(
+      usuarioResponsable: usuarioResponsable,
+      tablaAfectada: 'prestamos',
+      registroId: codigoReferencia,
+      accion: 'UPDATE',
+      datosNuevos: {
+        'evento': 'edicion de terminos',
+        'cliente_id': clienteId,
+        'tipo_tasa': tipoTasa,
+        'tipo_calculo': tipoCalculo,
+        'capital_inicial': capitalInicial,
+        'tasa_interes_mensual': tasaInteresMensual,
+        'mes_cambio_tasa': mesCambioTasa,
+        'nueva_tasa_interes': nuevaTasaInteres,
+        'mes_cambio_capitalizacion': mesCambioCapitalizacion,
+        'frecuencia_pago': frecuenciaPago,
+        'fecha_inicio': _formatDate(fechaInicio),
+        'numero_cuotas': numeroCuotas,
+      },
+    );
+  }
+
   /// Trae los datos financieros de un préstamo necesarios para recalcular
   /// su cronograma (usado por Abono a Capital, Liquidación Total e
   /// Inyección de Capital).

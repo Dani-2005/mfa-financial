@@ -17,7 +17,7 @@ class ReporteService {
     final query = {
       'modulo': modulo,
       if (clienteId != null) 'clienteId': '$clienteId',
-      if (tipoAccion != null) 'tipoAccion': tipoAccion,
+      'tipoAccion': ?tipoAccion,
       if (fechaDesde != null) 'fechaDesde': fechaDesde.toIso8601String(),
       if (fechaHasta != null) 'fechaHasta': fechaHasta.toIso8601String(),
     };
