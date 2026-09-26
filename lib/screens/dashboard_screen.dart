@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/dashboard_service.dart';
+import '../widgets/custom_dropdown.dart';
 import '../widgets/mini_charts.dart' show abreviarMonto;
 import 'payments_screen.dart' show PagoPrefill;
 
@@ -276,9 +277,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             flex: 3,
             child: Column(
               children: [
-                _buildTotalCapitalCard(),
+                _buildTotalCapitalCard(esEscritorio: true),
                 const SizedBox(height: 16),
-                _buildInteresesCard(),
+                _buildInteresesCard(esEscritorio: true),
                 const SizedBox(height: 16),
                 _buildActiveLoansCard(),
               ],
@@ -295,7 +296,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // --- COMPONENTES ---
-  Widget _buildTotalCapitalCard() {
+  Widget _buildTotalCapitalCard({bool esEscritorio = false}) {
     return _buildMetricCard(
       titulo: 'CAPITAL TOTAL PRESTADO',
       total: _totalCapital,
@@ -304,6 +305,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       creciendo: _capitalNuevoCreciendo,
       leyendaGrafica: 'Capital nuevo · 6 meses',
       textoSinDatos: 'Nuevo este período',
+      esEscritorio: esEscritorio,
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
@@ -318,7 +320,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildInteresesCard() {
+  Widget _buildInteresesCard({bool esEscritorio = false}) {
     return _buildMetricCard(
       titulo: 'INTERESES TOTALES COBRADOS',
       total: _totalIntereses,
@@ -327,6 +329,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       creciendo: _interesesCreciendo,
       leyendaGrafica: 'Intereses cobrados · 6 meses',
       textoSinDatos: 'Cobrado este período',
+      esEscritorio: esEscritorio,
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
@@ -354,6 +357,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required String leyendaGrafica,
     required String textoSinDatos,
     required VoidCallback onTap,
+    bool esEscritorio = false,
   }) {
     return Material(
       color: Colors.transparent,
@@ -409,12 +413,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           else
             LayoutBuilder(
               builder: (context, rowConstraints) {
-                // El gráfico prefiere su ancho natural (hasta 170) pegado a la
-                // derecha; en pantallas muy angostas se reduce como proporción
-                // del ancho disponible para nunca desbordar, en vez de competir
-                // en partes iguales con el texto (lo que dejaría un hueco vacío
-                // a su derecha en vez de quedar pegado al borde).
-                final chartMaxWidth = (rowConstraints.maxWidth * 0.42).clamp(130.0, 190.0);
+                // El gráfico prefiere su ancho natural pegado a la derecha;
+                // en pantallas angostas se reduce como proporción del ancho
+                // disponible para nunca desbordar, en vez de competir en
+                // partes iguales con el texto (lo que dejaría un hueco vacío
+                // a su derecha en vez de quedar pegado al borde). En
+                // escritorio se permite mucho más ancho: hay de sobra y se
+                // veía chico comparado con el resto de la tarjeta.
+                final chartMaxWidth = esEscritorio
+                    ? (rowConstraints.maxWidth * 0.55).clamp(220.0, 420.0)
+                    : (rowConstraints.maxWidth * 0.42).clamp(130.0, 190.0);
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -453,11 +461,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             values: serieMensual,
                             isGrowing: creciendo ?? true,
                             formatMoney: _formatCurrency,
+                            height: esEscritorio ? 160 : 100,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             leyendaGrafica,
-                            style: TextStyle(fontSize: 9, color: Colors.grey.shade700),
+                            style: TextStyle(fontSize: esEscritorio ? 11 : 9, color: Colors.grey.shade700),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -742,6 +751,10 @@ class _CapitalBarChart extends StatelessWidget {
     final etiquetas = _etiquetas();
     final maxValor = values.reduce((a, b) => a > b ? a : b);
     final maxEje = maxValor <= 0 ? 1.0 : maxValor * 1.25;
+    // Con más alto (tarjetas de escritorio) también se agrandan las
+    // etiquetas y las barras en proporción, para que no se vea un gráfico
+    // grande con letras diminutas.
+    final escala = (height / 100).clamp(1.0, 2.0);
 
     return SizedBox(
       height: height,
@@ -764,7 +777,7 @@ class _CapitalBarChart extends StatelessWidget {
               tooltipMargin: 6,
               getTooltipItem: (group, groupIndex, rod, rodIndex) => BarTooltipItem(
                 formatMoney(rod.toY),
-                const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                TextStyle(color: Colors.white, fontSize: 11 * escala, fontWeight: FontWeight.bold),
               ),
             ),
           ),
@@ -774,19 +787,19 @@ class _CapitalBarChart extends StatelessWidget {
             leftTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
-                reservedSize: 30,
+                reservedSize: 30 * escala,
                 interval: maxEje / 2,
                 getTitlesWidget: (value, meta) => Text(
                   abreviarMonto(value),
                   textScaler: TextScaler.noScaling,
-                  style: TextStyle(fontSize: 7, color: Colors.grey.shade700),
+                  style: TextStyle(fontSize: 7 * escala, color: Colors.grey.shade700),
                 ),
               ),
             ),
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
-                reservedSize: 16,
+                reservedSize: 16 * escala,
                 getTitlesWidget: (value, meta) {
                   final i = value.toInt();
                   if (i < 0 || i >= etiquetas.length) return const SizedBox();
@@ -795,7 +808,7 @@ class _CapitalBarChart extends StatelessWidget {
                     child: Text(
                       etiquetas[i],
                       textScaler: TextScaler.noScaling,
-                      style: TextStyle(fontSize: 8, color: Colors.grey.shade700),
+                      style: TextStyle(fontSize: 8 * escala, color: Colors.grey.shade700),
                     ),
                   );
                 },
@@ -809,8 +822,8 @@ class _CapitalBarChart extends StatelessWidget {
                 BarChartRodData(
                   toY: values[i],
                   color: color,
-                  width: 10,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                  width: 10 * escala,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(3 * escala)),
                 ),
               ],
             );
@@ -890,6 +903,11 @@ class _MetricYearDetailScreenState extends State<_MetricYearDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final total = _meses.fold<double>(0, (sum, v) => sum + v);
+    // En teléfono hay mucho menos ancho para las 12 etiquetas de mes que en
+    // escritorio: una gráfica más chica evita que se amontonen (ver
+    // _CapitalBarChart.escala, que agranda las letras junto con la altura).
+    final esMovil = MediaQuery.sizeOf(context).width < 800;
+    final alturaGrafica = esMovil ? 110.0 : 240.0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -908,29 +926,20 @@ class _MetricYearDetailScreenState extends State<_MetricYearDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade300),
+                  CustomDropdown<int>(
+                    key: ValueKey('anio_${_anioSeleccionado}_${_aniosDisponibles.length}'),
+                    initialValue: _anioSeleccionado,
+                    enabled: !_isLoading && _aniosDisponibles.length > 1,
+                    decoration: InputDecoration(
+                      labelText: 'Año',
+                      prefixIcon: const Icon(Icons.calendar_today_outlined, color: Colors.black),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Año', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black)),
-                        DropdownButton<int>(
-                          value: _anioSeleccionado,
-                          underline: const SizedBox(),
-                          items: _aniosDisponibles
-                              .map((a) => DropdownMenuItem(value: a, child: Text('$a', style: const TextStyle(fontSize: 14))))
-                              .toList(),
-                          onChanged: _isLoading ? null : (a) {
-                            if (a != null && a != _anioSeleccionado) _cargar(a);
-                          },
-                        ),
-                      ],
-                    ),
+                    items: _aniosDisponibles.map((a) => CustomDropdownItem<int>(value: a, label: '$a')).toList(),
+                    onChanged: (a) {
+                      if (a != null && a != _anioSeleccionado) _cargar(a);
+                    },
                   ),
                   const SizedBox(height: 16),
                   if (_isLoading)
@@ -981,7 +990,7 @@ class _MetricYearDetailScreenState extends State<_MetricYearDetailScreen> {
                             isGrowing: true,
                             formatMoney: widget.formatMoney,
                             labels: _mesesAbrev,
-                            height: 220,
+                            height: alturaGrafica,
                           ),
                         ],
                       ),
