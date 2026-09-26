@@ -167,27 +167,54 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _paymentsPrefillKey = 0;
   PagoPrefill? _pendingPagoPrefill;
 
-  List<Widget> get _screens => [
-        DashboardScreen(
+  // Señal de "recarga tus datos" para las demás pestañas: se incrementa la
+  // de una pestaña cada vez que se entra a ella desde otra. A diferencia del
+  // Dashboard, estas pantallas NO se recrean (así conservan filtros, página
+  // y búsqueda); solo vuelven a pedir los datos al servidor en silencio.
+  final List<int> _refreshSignals = List.filled(5, 0);
+
+  // Instancias de cada pantalla, guardadas para que al cambiar de pestaña
+  // Flutter NO vuelva a construir las 5 (reutilizar la misma instancia de
+  // un widget le dice que no cambió y se salta su build). Solo se reemplaza
+  // la de la pestaña que de verdad cambió, con [_rebuildScreen].
+  late final List<Widget> _screens = List.generate(5, _buildScreen);
+
+  Widget _buildScreen(int index) {
+    switch (index) {
+      case 0:
+        return DashboardScreen(
           key: ValueKey('dashboard_$_dashboardRefreshKey'),
           onRegistrarPago: _goToRegistrarPago,
-        ),
-        const LoansScreen(),
-        PaymentsScreen(
+        );
+      case 1:
+        return LoansScreen(refreshSignal: _refreshSignals[1]);
+      case 2:
+        return PaymentsScreen(
           key: ValueKey('payments_$_paymentsPrefillKey'),
           prefill: _pendingPagoPrefill,
           onPrefillConsumed: () {
-            if (mounted) setState(() => _pendingPagoPrefill = null);
+            if (!mounted) return;
+            setState(() {
+              _pendingPagoPrefill = null;
+              _rebuildScreen(2);
+            });
           },
-        ),
-        const ClientsScreen(),
-        const AuditAndReportsScreen(),
-      ];
+          refreshSignal: _refreshSignals[2],
+        );
+      case 3:
+        return ClientsScreen(refreshSignal: _refreshSignals[3]);
+      default:
+        return AuditAndReportsScreen(refreshSignal: _refreshSignals[4]);
+    }
+  }
+
+  void _rebuildScreen(int index) => _screens[index] = _buildScreen(index);
 
   void _goToRegistrarPago(PagoPrefill prefill) {
     setState(() {
       _pendingPagoPrefill = prefill;
       _paymentsPrefillKey++;
+      _rebuildScreen(2);
       _currentIndex = 2; // Pestaña de Pagos
     });
   }
@@ -428,6 +455,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         setState(() {
           if (index == 0 && _currentIndex != 0) {
             _dashboardRefreshKey++;
+            _rebuildScreen(0);
+          } else if (index != _currentIndex) {
+            _refreshSignals[index]++;
+            _rebuildScreen(index);
           }
           _currentIndex = index;
         });

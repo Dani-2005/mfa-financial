@@ -10,7 +10,12 @@ import '../widgets/mini_charts.dart';
 import '../widgets/pdf_actions_dialog.dart';
 
 class AuditAndReportsScreen extends StatefulWidget {
-  const AuditAndReportsScreen({super.key});
+  /// Cambia cada vez que se entra a esta pestaña (ver main.dart): al
+  /// cambiar, la bitácora (y las gráficas, si ya se habían abierto) se
+  /// vuelven a pedir al servidor sin perder filtros.
+  final int refreshSignal;
+
+  const AuditAndReportsScreen({super.key, this.refreshSignal = 0});
 
   @override
   State<AuditAndReportsScreen> createState() => _AuditAndReportsScreenState();
@@ -26,6 +31,7 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
   final GraficasService _graficasService = GraficasService();
   bool _chartsLoaded = false;
   bool _isLoadingCharts = false;
+  bool _recargandoCharts = false;
   String? _chartsError;
   Map<String, dynamic> _capitalNuevo = const {};
   Map<String, dynamic> _ingresosPorMes = const {};
@@ -124,6 +130,22 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant AuditAndReportsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshSignal == oldWidget.refreshSignal) return;
+    // Se pide después de mostrar la pestaña, para que el cambio de pestaña
+    // sea inmediato y la recarga no compita con ese frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadAuditLogs(silencioso: true);
+      _loadClientesParaFiltro();
+      // Las gráficas son de carga perezosa: si nunca se abrieron no hay
+      // nada que refrescar (se cargarán frescas al abrirlas).
+      if (_chartsLoaded) _loadChartsIfNeeded(silencioso: true);
+    });
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -154,12 +176,22 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
 
   /// Carga perezosa: solo se piden los datos de las gráficas la primera
   /// vez que el usuario entra a esa pestaña, no de entrada con la pantalla.
-  Future<void> _loadChartsIfNeeded() async {
-    if (_chartsLoaded || _isLoadingCharts) return;
-    setState(() {
-      _isLoadingCharts = true;
-      _chartsError = null;
-    });
+  ///
+  /// [silencioso]: recarga al volver a la pestaña de Auditoría con las
+  /// gráficas ya cargadas; mantiene las actuales en pantalla mientras llegan
+  /// las nuevas y, si falla, se queda con las que tenía.
+  Future<void> _loadChartsIfNeeded({bool silencioso = false}) async {
+    if (_isLoadingCharts || _recargandoCharts || (_chartsLoaded && !silencioso)) return;
+    // En modo silencioso no se toca _isLoadingCharts (que muestra el
+    // spinner en lugar de las gráficas); solo se evita pedirlas dos veces.
+    if (silencioso) {
+      _recargandoCharts = true;
+    } else {
+      setState(() {
+        _isLoadingCharts = true;
+        _chartsError = null;
+      });
+    }
     try {
       final resultados = await Future.wait([
         _graficasService.fetchCapitalNuevoPorMes(),
@@ -174,31 +206,40 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
         _distribucionEstados = resultados[2] as Map<String, int>;
         _cuotasPorVencimiento = resultados[3] as Map<String, int>;
         _chartsLoaded = true;
+        _chartsError = null;
         _isLoadingCharts = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || silencioso) return;
       setState(() {
         _chartsError = e is NoConnectionException ? e.message : 'No se pudieron cargar las gráficas.';
         _isLoadingCharts = false;
       });
+    } finally {
+      _recargandoCharts = false;
     }
   }
 
-  Future<void> _loadAuditLogs() async {
-    setState(() {
-      _isLoadingLogs = true;
-      _loadLogsError = null;
-    });
+  /// [silencioso]: recarga al volver a la pestaña. Mantiene la bitácora
+  /// actual en pantalla mientras llegan los datos nuevos (sin spinner), y si
+  /// falla se queda con los datos que ya tenía en vez de mostrar el error.
+  Future<void> _loadAuditLogs({bool silencioso = false}) async {
+    if (!silencioso) {
+      setState(() {
+        _isLoadingLogs = true;
+        _loadLogsError = null;
+      });
+    }
     try {
       final logs = await _auditoriaService.fetchAll();
       if (!mounted) return;
       setState(() {
         _auditLogs = logs;
         _isLoadingLogs = false;
+        _loadLogsError = null;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || silencioso) return;
       setState(() {
         _loadLogsError = e is NoConnectionException ? e.message : 'No se pudo cargar la bitácora de auditoría.';
         _isLoadingLogs = false;
