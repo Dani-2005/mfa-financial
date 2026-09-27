@@ -15,15 +15,19 @@ class AuditoriaService {
       'ORDER BY fecha_accion DESC, auditoriaSistema_id DESC',
     );
 
+    final nombresPorRegistro = await fetchNombresClientePorRegistro();
+
     return result.rows.map((row) {
       final f = row.typedAssoc();
       final fila = jsonSafeRow(f);
+      final registroId = f['registro_id'] as String;
       fila['descripcion'] = descripcionAuditoria(
         tabla: f['tabla_afectada'] as String,
         accion: f['accion'] as String,
-        registroId: f['registro_id'] as String,
+        registroId: registroId,
         usuario: (f['usuario_responsable'] as String?) ?? 'N/A',
         nuevos: auditoriaAsMap(f['datos_nuevos']),
+        nombreCliente: nombresPorRegistro[registroId],
       );
       return fila;
     }).toList();

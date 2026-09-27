@@ -19,7 +19,7 @@ class ReporteService {
       case 'Préstamos':
         return _fetchPrestamos(clienteId);
       case 'Pagos':
-        return _fetchPagos(clienteId);
+        return _fetchPagos(clienteId, fechaDesde, fechaHasta);
       case 'Auditoría':
         return _fetchAuditoria(tipoAccion, fechaDesde, fechaHasta);
       default:
@@ -46,7 +46,23 @@ class ReporteService {
 
   Future<List<Map<String, dynamic>>> _fetchPrestamos(int? clienteId) async {
     final result = await DatabaseService.instance.query(
-      'SELECT p.codigo_referencia, p.nombre_prestamo, c.documento_identidad, p.capital_inicial, p.numero_cuotas, p.estado '
+      'SELECT p.codigo_referencia, p.nombre_prestamo, c.documento_identidad, p.capital_inicial, p.numero_cuotas, p.estado, '
+      // Interés realmente pagado: solo cuotas Pagadas y no capitalizadas (el
+      // interés capitalizado se reinvierte en el saldo, no se cobra) — misma
+      // regla que usa el PDF del Plan de Pagos.
+      "(SELECT COALESCE(SUM(cu.monto_interes_generado), 0) FROM cuotas cu "
+      "WHERE cu.prestamo_id = p.prestamo_id AND cu.estado = 'Pagado' AND cu.interes_capitalizado = FALSE) "
+      'AS intereses_pagados, '
+      // Capital abonado: la amortización de las cuotas pagadas (siempre 0 en
+      // este modelo de préstamo, ver loan_calculator.dart) más los "Retiro"
+      // de transacciones_capital, que es como se guarda un Abono a Capital o
+      // una Liquidación Total hechos fuera del cronograma normal.
+      "(SELECT COALESCE(SUM(cu.monto_capital_amortizado), 0) FROM cuotas cu "
+      "WHERE cu.prestamo_id = p.prestamo_id AND cu.estado = 'Pagado' AND cu.interes_capitalizado = FALSE) "
+      '+ '
+      "(SELECT COALESCE(SUM(tc.monto), 0) FROM transacciones_capital tc "
+      "WHERE tc.prestamo_id = p.prestamo_id AND tc.activo = TRUE AND tc.tipo = 'Retiro') "
+      'AS capital_abonado '
       'FROM prestamos p JOIN clientes c ON c.cliente_id = p.cliente_id '
       '${clienteId != null ? 'WHERE p.cliente_id = :clienteId ' : ''}'
       'ORDER BY p.created_at DESC',
@@ -61,20 +77,44 @@ class ReporteService {
         'Monto Aprobado': _formatMoney(_toDouble(f['capital_inicial'])),
         'Plazo': '${f['numero_cuotas']} cuotas',
         'Estatus': f['estado'],
+        'Intereses Pagados': _formatMoney(_toDouble(f['intereses_pagados'])),
+        'Capital Abonado': _formatMoney(_toDouble(f['capital_abonado'])),
       };
     }).toList();
   }
 
-  Future<List<Map<String, dynamic>>> _fetchPagos(int? clienteId) async {
+  /// [fechaDesde]/[fechaHasta] acotan por `fecha_emision` (inclusive en
+  /// ambos extremos), igual que el mismo filtro del reporte de Auditoría.
+  Future<List<Map<String, dynamic>>> _fetchPagos(
+    int? clienteId,
+    DateTime? fechaDesde,
+    DateTime? fechaHasta,
+  ) async {
+    final condiciones = <String>[];
+    final params = <String, dynamic>{};
+    if (clienteId != null) {
+      condiciones.add('p.cliente_id = :clienteId');
+      params['clienteId'] = clienteId;
+    }
+    if (fechaDesde != null) {
+      condiciones.add('r.fecha_emision >= :fechaDesde');
+      params['fechaDesde'] = _formatFechaSql(fechaDesde);
+    }
+    if (fechaHasta != null) {
+      // El final de ese día completo, no la medianoche con la que arranca.
+      condiciones.add('r.fecha_emision <= :fechaHasta');
+      params['fechaHasta'] = _formatFechaSql(fechaHasta.add(const Duration(hours: 23, minutes: 59, seconds: 59)));
+    }
+    final whereClause = condiciones.isEmpty ? '' : 'WHERE ${condiciones.join(' AND ')} ';
+
     final result = await DatabaseService.instance.query(
       'SELECT r.codigo_recibo, c.documento_identidad, p.codigo_referencia, r.monto_total_pagado, '
       'r.descripcion_concepto, r.metodo_pago, r.referencia, r.fecha_emision '
       'FROM recibos_pagos r '
       'JOIN prestamos p ON p.prestamo_id = r.prestamo_id '
       'JOIN clientes c ON c.cliente_id = p.cliente_id '
-      '${clienteId != null ? 'WHERE p.cliente_id = :clienteId ' : ''}'
-      'ORDER BY r.fecha_emision DESC',
-      clienteId != null ? {'clienteId': clienteId} : null,
+      '${whereClause}ORDER BY r.fecha_emision DESC',
+      params.isEmpty ? null : params,
     );
     return result.rows.map((row) {
       final f = row.typedAssoc();
@@ -142,6 +182,7 @@ class ReporteService {
       'FROM auditoria_sistema ${whereClause}ORDER BY fecha_accion DESC LIMIT 500',
       params.isEmpty ? null : params,
     );
+    final nombresPorRegistro = await fetchNombresClientePorRegistro();
     return result.rows.map((row) {
       final f = row.typedAssoc();
       final tabla = f['tabla_afectada'] as String;
@@ -162,6 +203,7 @@ class ReporteService {
           registroId: registroId,
           usuario: usuario,
           nuevos: nuevos,
+          nombreCliente: nombresPorRegistro[registroId],
         ),
         'Snapshots JSON': _resumenJson(f['datos_anteriores'], f['datos_nuevos']),
       };

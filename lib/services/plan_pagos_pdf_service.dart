@@ -63,15 +63,101 @@ class PlanPagosPdfService {
             pw.SizedBox(height: 6),
             pw.Text(
               '* Las cuotas con Capitalizado = "Sí" salen como "Pagado" aunque el cliente no las pagó: '
-              'el interés se reinvierte automáticamente en el saldo en vez de cobrarse.',
+              'el interés se reinvierte automáticamente en el saldo en vez de cobrarse, así que no '
+              'cuentan en los totales pagados de abajo.',
               style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700),
             ),
           ],
+          pw.SizedBox(height: 14),
+          _buildTotalesPagados(cuotas, movimientos),
         ],
       ),
     );
 
     return doc.save();
+  }
+
+  /// Suma un campo numérico (interés o amortización de capital) de las
+  /// cuotas ya pagadas (estado='Pagado') y no capitalizadas: el interés
+  /// capitalizado se reinvierte en el saldo en vez de cobrarse, así que esas
+  /// cuotas no representan dinero realmente pagado por el cliente. Las
+  /// cuotas 'Pendiente'/'Parcial' no aportan aquí porque este endpoint no
+  /// trae el desglose de cuánto de un pago parcial fue interés o capital.
+  static double _sumaPagada(List<Map<String, dynamic>> cuotas, String clave) {
+    return cuotas
+        .where((c) => c['estado'] == 'Pagado' && c['capitalizado'] != 'Sí')
+        .fold<double>(0, (suma, c) => suma + ((c[clave] as num?)?.toDouble() ?? 0));
+  }
+
+  /// Suma los movimientos de capital tipo "Retiro": un abono a capital
+  /// (pago extra que reduce el saldo directo, fuera del cronograma normal
+  /// de cuotas) se guarda como uno de estos, así que no aparece en la
+  /// amortización de ninguna cuota y hay que sumarlo aparte. Los de tipo
+  /// "Inyección" quedan afuera a propósito: son capital que se agregó al
+  /// préstamo, no capital que el cliente pagó.
+  static double _totalRetirosCapital(List<Map<String, dynamic>> movimientos) {
+    return movimientos
+        .where((m) => m['esInyeccion'] == false)
+        .fold<double>(0, (suma, m) => suma + ((m['montoNumerico'] as num?)?.toDouble() ?? 0));
+  }
+
+  /// Recuadro final con el total de intereses pagados y, si el préstamo ya
+  /// tuvo abonos a capital, el total de capital abonado justo debajo (no se
+  /// muestra si todavía es $0, p. ej. un préstamo recién iniciado o uno en
+  /// fase de capitalización donde por ahora solo se cobra interés).
+  static pw.Widget _buildTotalesPagados(
+    List<Map<String, dynamic>> cuotas,
+    List<Map<String, dynamic>> movimientos,
+  ) {
+    final totalIntereses = _sumaPagada(cuotas, 'interesMonto');
+    final totalCapital = _sumaPagada(cuotas, 'amortizacionMonto') + _totalRetirosCapital(movimientos);
+
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.grey100,
+        borderRadius: pw.BorderRadius.circular(6),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          _filaTotal('TOTAL DE INTERESES PAGADOS', totalIntereses),
+          if (totalCapital > 0) ...[
+            pw.SizedBox(height: 6),
+            _filaTotal('TOTAL DE CAPITAL ABONADO', totalCapital),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _filaTotal(String etiqueta, double total) {
+    return pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(
+          etiqueta,
+          style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _colorEncabezado),
+        ),
+        pw.Text(
+          _formatMoney(total),
+          style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+        ),
+      ],
+    );
+  }
+
+  static String _formatMoney(double value) {
+    final isNegative = value < 0;
+    final parts = value.abs().toStringAsFixed(2).split('.');
+    final intPart = parts[0];
+    final buffer = StringBuffer();
+    for (int i = 0; i < intPart.length; i++) {
+      if (i > 0 && (intPart.length - i) % 3 == 0) buffer.write('.');
+      buffer.write(intPart[i]);
+    }
+    return '${isNegative ? '-' : ''}\$${buffer.toString()},${parts[1]}';
   }
 
   static pw.Widget _buildEncabezado(Map<String, dynamic> detalle, String fechaGeneracion) {

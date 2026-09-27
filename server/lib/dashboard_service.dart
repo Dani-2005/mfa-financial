@@ -218,11 +218,12 @@ class DashboardService {
     return result.rows.first.typedAssoc()['n'] as int;
   }
 
-  /// Próximas cuotas por cobrar (estado='Pendiente') de préstamos activos,
-  /// ordenadas por fecha de vencimiento. Devuelve el total real de cuotas
-  /// pendientes y solo las [limite] más próximas ya formateadas para las
-  /// tarjetas de alerta del dashboard, con los IDs necesarios para poder
-  /// llevar directo al formulario de "Registrar Pago" con todo pre-llenado.
+  /// Próximas cuotas por cobrar (estado='Pendiente') de préstamos activos
+  /// que vencen dentro del mes en curso, ordenadas por fecha de
+  /// vencimiento. Devuelve el total real de cuotas pendientes del mes y
+  /// solo las [limite] más próximas ya formateadas para las tarjetas de
+  /// alerta del dashboard, con los IDs necesarios para poder llevar
+  /// directo al formulario de "Registrar Pago" con todo pre-llenado.
   Future<Map<String, dynamic>> fetchProximasCuotas({int limite = 5}) async {
     final result = await DatabaseService.instance.query(
       'SELECT cu.cuota_id, cu.fecha_vencimiento, cu.monto_interes_generado, cu.monto_capital_amortizado, '
@@ -237,7 +238,17 @@ class DashboardService {
     final hoy = DateTime.now();
     final hoySinHora = DateTime(hoy.year, hoy.month, hoy.day);
 
-    final todas = result.rows.map((row) {
+    // Solo cuotas que vencen dentro del mes en curso (sin importar el año
+    // de esa fecha, filtramos por el rango [inicioMes, finMes)): vencidas
+    // de meses anteriores o próximas de meses futuros no cuentan aquí.
+    final inicioMes = DateTime(hoy.year, hoy.month, 1);
+    final finMes = DateTime(hoy.year, hoy.month + 1, 1);
+    final filasDelMes = result.rows.where((row) {
+      final fechaVencimiento = row.typedAssoc()['fecha_vencimiento'] as DateTime;
+      return !fechaVencimiento.isBefore(inicioMes) && fechaVencimiento.isBefore(finMes);
+    });
+
+    final todas = filasDelMes.map((row) {
       final f = row.typedAssoc();
       final fechaVencimiento = f['fecha_vencimiento'] as DateTime;
       final monto = double.parse(f['monto_interes_generado'].toString()) +

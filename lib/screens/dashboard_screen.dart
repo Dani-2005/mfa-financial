@@ -299,6 +299,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildTotalCapitalCard({bool esEscritorio = false}) {
     return _buildMetricCard(
       titulo: 'CAPITAL TOTAL PRESTADO',
+      tituloModal: 'Capital Nuevo Colocado',
       total: _totalCapital,
       porcentajeCambio: _porcentajeCambio,
       serieMensual: _serieMensual,
@@ -323,6 +324,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildInteresesCard({bool esEscritorio = false}) {
     return _buildMetricCard(
       titulo: 'INTERESES TOTALES COBRADOS',
+      tituloModal: 'Intereses Cobrados',
       total: _totalIntereses,
       porcentajeCambio: _porcentajeCambioIntereses,
       serieMensual: _serieInteresesMensual,
@@ -344,12 +346,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  /// Abre la gráfica de la tarjeta en grande dentro de una ventanita modal
+  /// (mismo estilo que el diálogo de "Registrar Nuevo Pago": fondo oscurecido
+  /// alrededor con [showDialog]), en vez de la pantalla completa de detalle
+  /// por año. Se dimensiona con [MediaQuery] para verse bien tanto en
+  /// teléfono como en escritorio.
+  void _showChartModal(
+    BuildContext context, {
+    required String titulo,
+    required List<double> values,
+    required bool creciendo,
+    required String leyenda,
+  }) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        final isDesktop = MediaQuery.sizeOf(dialogContext).width >= 800;
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: EdgeInsets.symmetric(horizontal: isDesktop ? 80 : 16, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          titulo,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close, color: Colors.black54),
+                        tooltip: 'Cerrar',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _CapitalBarChart(
+                      values: values,
+                      isGrowing: creciendo,
+                      formatMoney: _formatCurrency,
+                      height: isDesktop ? 300 : 220,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(leyenda, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// Tarjeta genérica de métrica con gráfico de barras mensual: la usan
   /// tanto el capital total prestado como los intereses totales cobrados,
   /// que comparten exactamente la misma forma de dato (total acumulado +
   /// variación vs. mes pasado + serie de los últimos 6 meses).
   Widget _buildMetricCard({
     required String titulo,
+    required String tituloModal,
     required double? total,
     required double? porcentajeCambio,
     required List<double> serieMensual,
@@ -457,11 +525,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _CapitalBarChart(
-                            values: serieMensual,
-                            isGrowing: creciendo ?? true,
-                            formatMoney: _formatCurrency,
-                            height: esEscritorio ? 160 : 100,
+                          // El _TapOverlay se limita a la gráfica misma (no
+                          // a la leyenda de abajo): sobre sus barras,
+                          // fl_chart siempre le gana el toque al InkWell de
+                          // la tarjeta (ver doc de _TapOverlay), así que solo
+                          // ahí hace falta el Listener sin arena para que el
+                          // modal abra. Si envolviera también la leyenda, un
+                          // toque ahí dispararía ambos: el Listener (que no
+                          // compite por el gesto) y el InkWell de la tarjeta
+                          // (que ahí sí gana sin competencia), abriendo el
+                          // modal y la pantalla de detalle por año a la vez.
+                          _TapOverlay(
+                            onTap: () => _showChartModal(
+                              context,
+                              titulo: tituloModal,
+                              values: serieMensual,
+                              creciendo: creciendo ?? true,
+                              leyenda: leyendaGrafica,
+                            ),
+                            child: _CapitalBarChart(
+                              values: serieMensual,
+                              isGrowing: creciendo ?? true,
+                              formatMoney: _formatCurrency,
+                              height: esEscritorio ? 160 : 100,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -700,6 +787,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           )
         ],
+      ),
+    );
+  }
+}
+
+/// Detecta un toque simple sobre [child] sin depender del "gesture arena" de
+/// Flutter. El [BarChart] de fl_chart registra sus propios reconocedores de
+/// toque/arrastre (para mostrar el tooltip de cada barra) y, al competir por
+/// el mismo puntero, casi siempre gana el suyo por ser el más profundo en el
+/// árbol — por eso el `onTap` de un `InkWell`/`GestureDetector` ancestro
+/// nunca llegaba a dispararse al tocar la gráfica. Escuchando los eventos de
+/// puntero crudos con [Listener] evitamos esa competencia: siempre nos
+/// llegan, sin importar quién "gane" el gesto, y detectamos el toque a mano
+/// (poco movimiento entre el `down` y el `up`) para no confundirlo con un
+/// arrastre para explorar el tooltip.
+class _TapOverlay extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+
+  const _TapOverlay({required this.child, required this.onTap});
+
+  @override
+  State<_TapOverlay> createState() => _TapOverlayState();
+}
+
+class _TapOverlayState extends State<_TapOverlay> {
+  Offset? _downPosition;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (event) => _downPosition = event.position,
+        onPointerUp: (event) {
+          final start = _downPosition;
+          _downPosition = null;
+          if (start != null && (event.position - start).distance < 20) {
+            widget.onTap();
+          }
+        },
+        onPointerCancel: (_) => _downPosition = null,
+        child: widget.child,
       ),
     );
   }

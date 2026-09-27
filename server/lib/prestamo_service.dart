@@ -294,7 +294,14 @@ class PrestamoService {
         'saldoInicio': _formatMoney(_toDouble(f['saldo_inicio_periodo'])),
         'tasa': '${_toDouble(f['tasa_aplicada']).toStringAsFixed(1)}%',
         'interes': _formatMoney(_toDouble(f['monto_interes_generado'])),
+        // Mismo valor que 'interes' pero sin formatear, para poder sumarlo
+        // (p. ej. el total de intereses pagados al final del PDF del plan
+        // de pagos) sin tener que parsear el string con separadores de miles.
+        'interesMonto': _toDouble(f['monto_interes_generado']),
         'amortizacion': _formatMoney(_toDouble(f['monto_capital_amortizado'])),
+        // Mismo valor que 'amortizacion' pero sin formatear, para el total
+        // de capital abonado al final del PDF del plan de pagos.
+        'amortizacionMonto': _toDouble(f['monto_capital_amortizado']),
         'capitalizado': (f['interes_capitalizado'] as bool) ? 'Sí' : 'No',
         'saldoFin': _formatMoney(_toDouble(f['saldo_fin_periodo'])),
         'estado': estado,
@@ -322,6 +329,11 @@ class PrestamoService {
         'tipo': tipo == 'Inyeccion' ? 'Inyección' : 'Retiro',
         'esInyeccion': tipo == 'Inyeccion',
         'monto': _formatMoney(_toDouble(f['monto'])),
+        // Mismo valor que 'monto' pero sin formatear: un "Retiro" es capital
+        // que el cliente abonó fuera del cronograma normal (p. ej. un "Abono
+        // a Capital" registrado desde Pagos), así que también cuenta en el
+        // total de capital abonado al final del PDF del plan de pagos.
+        'montoNumerico': _toDouble(f['monto']),
         'periodo': periodo,
         'fecha': _formatDateDisplay(f['fecha_transaccion'] as DateTime),
       };
@@ -646,7 +658,7 @@ class PrestamoService {
     // en su mismo período — si el nuevo número de cuotas queda por debajo de
     // alguno de esos períodos, generarCronograma lo rechaza más abajo.
     final movimientosRows = await DatabaseService.instance.query(
-      'SELECT tipo, periodo_aplicacion, monto FROM transacciones_capital '
+      'SELECT transaccionCapital_id, tipo, periodo_aplicacion, monto, descripcion FROM transacciones_capital '
       'WHERE prestamo_id = :id AND activo = TRUE AND periodo_aplicacion IS NOT NULL '
       'ORDER BY periodo_aplicacion',
       {'id': prestamoId},
@@ -659,6 +671,31 @@ class PrestamoService {
         monto: _toDouble(f['monto']),
       );
     }).toList();
+
+    // La fecha guardada de un movimiento "planificado desde la creación" no
+    // es un evento real (nadie lo registró un día puntual): es solo una
+    // proyección de qué fecha le tocaba a la cuota donde arranca, calculada
+    // con la fecha de inicio que tenía el préstamo en ese momento. Si ahora
+    // se corrige esa fecha de inicio, esa proyección queda desactualizada
+    // (el PDF del Plan de Pagos la mostraría junto a una cuota con una fecha
+    // distinta), así que se recalcula igual que en create(). Los abonos e
+    // inyecciones registrados DURANTE la vida del préstamo no se tocan: esa
+    // fecha sí es un hecho real (el día en que se registró ese pago), y
+    // reescribirla falsearía cuándo pasó de verdad.
+    const prefijoPlanificado = 'Movimiento planificado desde la creación del préstamo';
+    for (final row in movimientosRows.rows) {
+      final f = row.typedAssoc();
+      final descripcion = f['descripcion'] as String? ?? '';
+      if (!descripcion.startsWith(prefijoPlanificado)) continue;
+
+      final periodo = f['periodo_aplicacion'] as int;
+      final nuevaFecha =
+          periodo == 1 ? fechaInicio : LoanCalculator.fechaDePeriodo(fechaInicio, frecuenciaPago, periodo - 1);
+      await DatabaseService.instance.query(
+        'UPDATE transacciones_capital SET fecha_transaccion = :fecha WHERE transaccionCapital_id = :id',
+        {'fecha': _formatDate(nuevaFecha), 'id': f['transaccionCapital_id']},
+      );
+    }
 
     final capitaliza = tipoCalculo == 'Compuesto';
     final esOperacionPorFases = mesCambioCapitalizacion != null;

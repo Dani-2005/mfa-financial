@@ -63,6 +63,12 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
   // filas trae, además del límite fijo de 500 que ya aplica el servidor).
   DateTime? _auditFechaDesde;
   DateTime? _auditFechaHasta;
+
+  // Rango de fechas opcional para el reporte de Pagos: filtra por la fecha
+  // en que se registró cada recibo (fecha_emision), separado del rango de
+  // Auditoría porque son filtros de pantallas distintas.
+  DateTime? _pagosFechaDesde;
+  DateTime? _pagosFechaHasta;
   // Resuelve la etiqueta mostrada en el filtro ("documento - nombre") de
   // vuelta al cliente_id real, para poder filtrar la consulta del reporte.
   final Map<String, int> _clienteIdPorEtiqueta = {};
@@ -85,6 +91,8 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
       'Monto Aprobado': true,
       'Plazo': true,
       'Estatus': true,
+      'Intereses Pagados': true,
+      'Capital Abonado': true,
     },
     'Pagos': {
       'Número Recibo': true,
@@ -470,8 +478,15 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
       final table = log['tabla_afectada'].toLowerCase();
       final user = log['usuario_responsable'].toLowerCase();
       final regId = log['registro_id'].toLowerCase();
-      
-      bool matchesSearch = table.contains(query) || user.contains(query) || regId.contains(query);
+      // La descripción en lenguaje simple (la misma que se muestra en cada
+      // fila, p. ej. "Miguel registró un pago de $50.000 (recibo #123)")
+      // trae nombres de clientes, préstamos y montos — justo lo que alguien
+      // sin conocimiento técnico escribiría, a diferencia de la tabla cruda
+      // o el ID. Puede venir null en registros muy viejos.
+      final descripcion = ((log['descripcion'] as String?) ?? '').toLowerCase();
+
+      bool matchesSearch =
+          table.contains(query) || user.contains(query) || regId.contains(query) || descripcion.contains(query);
       bool matchesAction = _selectedActionFilter == 'TODAS' || log['accion'] == _selectedActionFilter;
 
       return matchesSearch && matchesAction;
@@ -493,7 +508,7 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     const hintStyle = TextStyle(fontSize: 12);
-                    const hintFull = 'Buscar tabla, usuario o ID...';
+                    const hintFull = 'Buscar por nombre, préstamo, monto o palabra clave...';
                     // Mismo tamaño de letra siempre: si el hint completo no
                     // entra (letra grande, pantalla angosta), se usa una
                     // versión corta en vez de dejar que se corte solo.
@@ -525,28 +540,30 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
             const SizedBox(width: 10),
             Expanded(
               flex: 2,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade200),
+              // Mismas etiquetas en español que ya usa el filtro de "Tipo de
+              // Evento" del Reporte de Auditoría (_auditActionOptions), para
+              // que alguien no técnico no se encuentre con "INSERT"/"UPDATE"
+              // aquí y "Crear"/"Actualizar" allá. Se deja fuera "DELETE": no
+              // hay ninguna acción del sistema que lo genere, así que era una
+              // opción del menú que nunca encontraba nada. "LOGINS" también
+              // se deja fuera aquí porque distinguirlo de un "UPDATE" normal
+              // requiere revisar el contenido del evento, no solo la acción
+              // (ver el filtro de Reportes, que sí hace esa distinción).
+              child: CustomDropdown<String>(
+                initialValue: _selectedActionFilter,
+                decoration: InputDecoration(
+                  labelText: 'Acción',
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+                  filled: true,
+                  fillColor: Colors.white,
                 ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedActionFilter,
-                    isExpanded: true,
-                    style: const TextStyle(fontSize: 12, color: Colors.black, fontWeight: FontWeight.bold),
-                    items: const [
-                      DropdownMenuItem(value: 'TODAS', child: Text('Acción: Todas')),
-                      DropdownMenuItem(value: 'INSERT', child: Text('INSERT')),
-                      DropdownMenuItem(value: 'UPDATE', child: Text('UPDATE')),
-                      DropdownMenuItem(value: 'DELETE', child: Text('DELETE')),
-                      DropdownMenuItem(value: 'DESACTIVAR', child: Text('DESACTIVAR')),
-                    ],
-                    onChanged: (val) => setState(() => _selectedActionFilter = val!),
-                  ),
-                ),
+                items: _auditActionOptions.entries
+                    .where((entry) => entry.key != 'LOGINS')
+                    .map((entry) => CustomDropdownItem<String>(value: entry.key, label: entry.value))
+                    .toList(),
+                onChanged: (val) => setState(() => _selectedActionFilter = val!),
               ),
             ),
             const SizedBox(width: 10),
@@ -907,6 +924,57 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
         ],
 
         // ==========================================
+        // FILTRO CONDICIONAL: PAGOS POR RANGO DE FECHAS
+        // ==========================================
+        if (_selectedReportModule == 'Pagos') ...[
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2))],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Filtro Opcional: Rango de Fechas',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Deje vacío para incluir pagos de cualquier fecha.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade800),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: _buildAuditDateField('Desde', _pagosFechaDesde, () => _selectPagosFecha(esDesde: true))),
+                    const SizedBox(width: 10),
+                    Expanded(child: _buildAuditDateField('Hasta', _pagosFechaHasta, () => _selectPagosFecha(esDesde: false))),
+                  ],
+                ),
+                if (_pagosFechaDesde != null || _pagosFechaHasta != null) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => setState(() {
+                        _pagosFechaDesde = null;
+                        _pagosFechaHasta = null;
+                      }),
+                      child: const Text('Quitar rango de fechas', style: TextStyle(fontSize: 12)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+
+        // ==========================================
         // FILTRO CONDICIONAL: AUDITORÍA POR TIPO DE EVENTO
         // ==========================================
         if (_selectedReportModule == 'Auditoría') ...[
@@ -1120,6 +1188,24 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
     });
   }
 
+  Future<void> _selectPagosFecha({required bool esDesde}) async {
+    final actual = esDesde ? _pagosFechaDesde : _pagosFechaHasta;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: actual ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked == null) return;
+    setState(() {
+      if (esDesde) {
+        _pagosFechaDesde = picked;
+      } else {
+        _pagosFechaHasta = picked;
+      }
+    });
+  }
+
   void _generarReporte(BuildContext context, String reportType) {
     final selectedFieldsMap = _reportModuleFields[reportType] ?? {};
     final activeFields = selectedFieldsMap.entries
@@ -1142,8 +1228,16 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
     final tipoAccion = aplicaFiltroAccion ? _selectedReportAuditAction : null;
     final etiquetaAccion = aplicaFiltroAccion ? _auditActionOptions[_selectedReportAuditAction] : null;
 
-    final fechaDesde = reportType == 'Auditoría' ? _auditFechaDesde : null;
-    final fechaHasta = reportType == 'Auditoría' ? _auditFechaHasta : null;
+    final fechaDesde = switch (reportType) {
+      'Auditoría' => _auditFechaDesde,
+      'Pagos' => _pagosFechaDesde,
+      _ => null,
+    };
+    final fechaHasta = switch (reportType) {
+      'Auditoría' => _auditFechaHasta,
+      'Pagos' => _pagosFechaHasta,
+      _ => null,
+    };
     String? etiquetaRango;
     if (fechaDesde != null || fechaHasta != null) {
       String fmt(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';

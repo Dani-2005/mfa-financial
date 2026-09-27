@@ -1024,6 +1024,45 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
     });
   }
 
+  /// Diálogo de confirmación antes de ejecutar una Liquidación Total: en
+  /// lenguaje simple, con el préstamo y el monto de por medio, y dejando
+  /// claro que no se puede deshacer — así el usuario no descubre la
+  /// consecuencia recién después de haber tocado "Guardar Pago".
+  Future<bool> _confirmarLiquidacionTotal() async {
+    final prestamo = _prestamos.firstWhere((p) => p['prestamo_id'] == _selectedPrestamoId);
+    final montoTexto = _amountController.text.trim();
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmar Liquidación Total'),
+        content: SizedBox(
+          width: 320,
+          child: Text(
+            'Vas a liquidar por completo el préstamo ${_codigoConNombre(prestamo)} '
+            'por $montoTexto.\n\n'
+            'Esto marcará el préstamo como Pagado y lo dará por finalizado. '
+            'Esta acción no se puede deshacer.\n\n'
+            '¿Deseas continuar?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text('Cancelar', style: TextStyle(color: Colors.grey.shade800)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Sí, liquidar préstamo', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    return confirmado ?? false;
+  }
+
   Future<void> _save() async {
     if (_selectedClienteId == null || _selectedPrestamoId == null) {
       _snack('Selecciona el cliente y el préstamo');
@@ -1046,6 +1085,16 @@ class _NewPaymentDialogState extends State<_NewPaymentDialog> {
     if (_conceptController.text.trim().isEmpty) {
       _snack('Ingresa el concepto del pago');
       return;
+    }
+
+    // La Liquidación Total marca el préstamo como Pagado y lo finaliza de
+    // forma permanente (no hay un "deshacer" en la app): a diferencia de un
+    // pago normal, que solo se puede anular, esta acción cierra el
+    // préstamo. Por eso pide una confirmación explícita, con el monto y el
+    // préstamo de por medio, antes de ejecutarla.
+    if (_tipoMovimiento == 'Liquidacion_Total') {
+      final confirmado = await _confirmarLiquidacionTotal();
+      if (!confirmado) return;
     }
 
     _errorTimer?.cancel();
