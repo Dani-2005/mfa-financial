@@ -7,7 +7,12 @@ import '../services/cliente_service.dart';
 import '../widgets/custom_dropdown.dart';
 
 class ClientsScreen extends StatefulWidget {
-  const ClientsScreen({super.key});
+  /// Cambia cada vez que se entra a esta pestaña (ver main.dart): al
+  /// cambiar, la lista se vuelve a pedir al servidor sin perder búsqueda ni
+  /// filtros.
+  final int refreshSignal;
+
+  const ClientsScreen({super.key, this.refreshSignal = 0});
 
   @override
   State<ClientsScreen> createState() => _ClientsScreenState();
@@ -17,6 +22,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ClienteService _clienteService = ClienteService();
   String _searchQuery = '';
+  // Filtro por estado: 'ACTIVOS' (por defecto, los inactivos quedan
+  // ocultos), 'INACTIVOS' o 'TODOS'.
+  String _estadoFiltro = 'ACTIVOS';
   int _currentPage = 1;
   final int _itemsPerPage = 5;
 
@@ -31,25 +39,42 @@ class _ClientsScreenState extends State<ClientsScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant ClientsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshSignal == oldWidget.refreshSignal) return;
+    // Se pide después de mostrar la pestaña, para que el cambio de
+    // pestaña sea inmediato y la recarga no compita con ese frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadClients(silencioso: true);
+    });
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadClients() async {
-    setState(() {
-      _isLoading = true;
-      _loadError = null;
-    });
+  /// [silencioso]: recarga al volver a la pestaña. Mantiene la lista actual
+  /// en pantalla mientras llegan los datos nuevos (sin spinner), y si falla
+  /// se queda con los datos que ya tenía en vez de mostrar el error.
+  Future<void> _loadClients({bool silencioso = false}) async {
+    if (!silencioso) {
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+      });
+    }
     try {
       final clients = await _clienteService.fetchAll();
       if (!mounted) return;
       setState(() {
         _allClients = clients;
         _isLoading = false;
+        _loadError = null;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || silencioso) return;
       setState(() {
         _loadError = e is NoConnectionException ? e.message : 'No se pudo cargar la lista de clientes.';
         _isLoading = false;
@@ -222,6 +247,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
       );
     } else {
       final filteredClients = _allClients.where((client) {
+        final activo = client['activo'] == true;
+        if (_estadoFiltro == 'ACTIVOS' && !activo) return false;
+        if (_estadoFiltro == 'INACTIVOS' && activo) return false;
         final query = _searchQuery.toLowerCase();
         final name = client['nombre_cliente'].toString().toLowerCase();
         final doc = client['documento_identidad'].toString().toLowerCase();
@@ -258,7 +286,14 @@ class _ClientsScreenState extends State<ClientsScreen> {
       children: [
         _buildTopActionsBar(),
         const SizedBox(height: 16),
-        _buildSearchBar(),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(child: _buildSearchBar()),
+            const SizedBox(width: 12),
+            SizedBox(width: 150, child: _buildEstadoFilter()),
+          ],
+        ),
         const SizedBox(height: 20),
         listSection,
       ],
@@ -292,6 +327,37 @@ class _ClientsScreenState extends State<ClientsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildEstadoFilter() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2))],
+      ),
+      child: CustomDropdown<String>(
+        initialValue: _estadoFiltro,
+        decoration: InputDecoration(
+          labelText: 'Estado',
+          prefixIcon: const Icon(Icons.filter_list, color: Colors.black, size: 20),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.grey.shade200)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.grey.shade200)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        ),
+        items: const [
+          CustomDropdownItem(value: 'ACTIVOS', label: 'Activos'),
+          CustomDropdownItem(value: 'INACTIVOS', label: 'Inactivos'),
+          CustomDropdownItem(value: 'TODOS', label: 'Todos'),
+        ],
+        onChanged: (val) {
+          setState(() {
+            _estadoFiltro = val!;
+            _currentPage = 1;
+          });
+        },
+      ),
     );
   }
 
@@ -503,9 +569,23 @@ class _ClientsScreenState extends State<ClientsScreen> {
         children: [
           Icon(Icons.person_search_outlined, size: 48, color: Colors.grey.shade500),
           const SizedBox(height: 12),
-          const Text('No se encontraron clientes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
+          Text(
+            _estadoFiltro == 'ACTIVOS'
+                ? 'No se encontraron clientes activos'
+                : _estadoFiltro == 'INACTIVOS'
+                    ? 'No se encontraron clientes inactivos'
+                    : 'No se encontraron clientes',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 4),
-          Text('Intenta con otro término de búsqueda o registra uno nuevo.', style: TextStyle(fontSize: 12, color: Colors.grey.shade800)),
+          Text(
+            _estadoFiltro == 'ACTIVOS'
+                ? 'Los inactivos están ocultos: cámbialo en el filtro "Estado", busca otro término o registra uno nuevo.'
+                : 'Intenta con otro término de búsqueda, cambia el filtro "Estado" o registra uno nuevo.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );

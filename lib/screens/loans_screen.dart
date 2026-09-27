@@ -13,7 +13,12 @@ import '../widgets/money_input_formatter.dart';
 import '../widgets/pdf_actions_dialog.dart';
 
 class LoansScreen extends StatefulWidget {
-  const LoansScreen({super.key});
+  /// Cambia cada vez que se entra a esta pestaña (ver main.dart): al
+  /// cambiar, la lista se vuelve a pedir al servidor sin perder búsqueda ni
+  /// filtros.
+  final int refreshSignal;
+
+  const LoansScreen({super.key, this.refreshSignal = 0});
 
   @override
   State<LoansScreen> createState() => _LoansScreenState();
@@ -39,25 +44,42 @@ class _LoansScreenState extends State<LoansScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant LoansScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshSignal == oldWidget.refreshSignal) return;
+    // Se pide después de mostrar la pestaña, para que el cambio de
+    // pestaña sea inmediato y la recarga no compita con ese frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadLoans(silencioso: true);
+    });
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadLoans() async {
-    setState(() {
-      _isLoading = true;
-      _loadError = null;
-    });
+  /// [silencioso]: recarga al volver a la pestaña. Mantiene la lista actual
+  /// en pantalla mientras llegan los datos nuevos (sin spinner), y si falla
+  /// se queda con los datos que ya tenía en vez de mostrar el error.
+  Future<void> _loadLoans({bool silencioso = false}) async {
+    if (!silencioso) {
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+      });
+    }
     try {
       final loans = await _prestamoService.fetchAll();
       if (!mounted) return;
       setState(() {
         _loans = loans;
         _isLoading = false;
+        _loadError = null;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || silencioso) return;
       setState(() {
         _loadError = e is NoConnectionException ? e.message : 'No se pudo cargar la lista de préstamos.';
         _isLoading = false;

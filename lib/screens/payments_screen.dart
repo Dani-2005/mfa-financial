@@ -32,7 +32,12 @@ class PaymentsScreen extends StatefulWidget {
   /// a ver el mismo `prefill` ya usado y reabre el diálogo solo.
   final VoidCallback? onPrefillConsumed;
 
-  const PaymentsScreen({super.key, this.prefill, this.onPrefillConsumed});
+  /// Cambia cada vez que se entra a esta pestaña (ver main.dart): al
+  /// cambiar, los pagos se vuelven a pedir al servidor sin perder filtros
+  /// ni página.
+  final int refreshSignal;
+
+  const PaymentsScreen({super.key, this.prefill, this.onPrefillConsumed, this.refreshSignal = 0});
 
   @override
   State<PaymentsScreen> createState() => _PaymentsScreenState();
@@ -79,20 +84,47 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     }
   }
 
-  Future<void> _loadPayments() async {
-    setState(() {
-      _isLoading = true;
-      _loadError = null;
+  @override
+  void didUpdateWidget(covariant PaymentsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshSignal == oldWidget.refreshSignal) return;
+    // Se pide después de mostrar la pestaña, para que el cambio de
+    // pestaña sea inmediato y la recarga no compita con ese frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadPayments(silencioso: true);
     });
+  }
+
+  /// [silencioso]: recarga al volver a la pestaña. Mantiene la lista actual
+  /// en pantalla mientras llegan los datos nuevos (sin spinner), y si falla
+  /// se queda con los datos que ya tenía en vez de mostrar el error.
+  Future<void> _loadPayments({bool silencioso = false}) async {
+    if (!silencioso) {
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+      });
+    }
     try {
       final payments = await _pagoService.fetchAll();
       if (!mounted) return;
       setState(() {
         _allPayments = payments;
         _isLoading = false;
+        _loadError = null;
+        // Si el cliente/préstamo elegido ya no tiene pagos (p. ej. se borró),
+        // el filtro vuelve a "Todos" en vez de dejar la lista vacía sin
+        // explicación y el selector sin una opción que coincida.
+        if (_selectedClienteId != null && !payments.any((p) => p['cliente_id'] == _selectedClienteId)) {
+          _selectedClienteId = null;
+          _selectedPrestamo = null;
+        }
+        if (_selectedPrestamo != null && !payments.any((p) => p['prestamo_codigo'] == _selectedPrestamo)) {
+          _selectedPrestamo = null;
+        }
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || silencioso) return;
       setState(() {
         _loadError = e is NoConnectionException ? e.message : 'No se pudo cargar el historial de pagos.';
         _isLoading = false;
@@ -433,6 +465,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             children: [
               Expanded(
                 child: CustomDropdown<int?>(
+                  // Se recrea si _selectedClienteId cambia desde afuera (al
+                  // recargar, si el cliente elegido ya no tiene pagos).
+                  key: ValueKey('cliente-$_selectedClienteId'),
                   initialValue: _selectedClienteId,
                   decoration: _filterDecoration('Cliente', Icons.person_outline),
                   items: [
