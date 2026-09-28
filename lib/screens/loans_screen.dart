@@ -2766,9 +2766,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   String _selectedFrequency = 'Mensual';
   DateTime _startDate = DateTime.now();
 
-  // Letra de cambio del préstamo: opcional, pero si se indica una fecha
-  // hay que indicar las dos.
-  DateTime? _inicioLetra;
+  // Vencimiento de la letra de cambio del préstamo (opcional).
   DateTime? _vencimientoLetra;
 
   final TextEditingController _mesCambioController = TextEditingController();
@@ -2831,7 +2829,6 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
     _numeroCuotasController.text = '${e['numeroCuotas']}';
     _selectedFrequency = e['frecuenciaPago'] as String;
     _startDate = DateTime.parse(e['fechaInicio'] as String);
-    _inicioLetra = DateTime.tryParse((e['fechaInicioLetra'] as String?) ?? '');
     _vencimientoLetra = DateTime.tryParse((e['fechaVencimientoLetra'] as String?) ?? '');
     if (e['mesCambioTasa'] != null) {
       _mesCambioController.text = '${e['mesCambioTasa']}';
@@ -2985,18 +2982,6 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   Future<void> _saveLoan() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if ((_inicioLetra == null) != (_vencimientoLetra == null)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Indica el inicio y el vencimiento de la letra, o deja ambos vacíos')),
-      );
-      return;
-    }
-    if (_inicioLetra != null && _vencimientoLetra!.isBefore(_inicioLetra!)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El vencimiento de la letra no puede ser anterior a su inicio')),
-      );
-      return;
-    }
 
     if (_selectedClienteId == null || _selectedEstadoId == null || _codigoGenerado == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3030,7 +3015,6 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
           frecuenciaPago: _selectedFrequency,
           fechaInicio: _startDate,
           numeroCuotas: int.parse(_numeroCuotasController.text),
-          fechaInicioLetra: _inicioLetra,
           fechaVencimientoLetra: _vencimientoLetra,
         );
 
@@ -3071,7 +3055,6 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
         frecuenciaPago: _selectedFrequency,
         fechaInicio: _startDate,
         numeroCuotas: int.parse(_numeroCuotasController.text),
-        fechaInicioLetra: _inicioLetra,
         fechaVencimientoLetra: _vencimientoLetra,
         movimientosPlanificados: movimientosPlanificados,
       );
@@ -3453,12 +3436,6 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                   ),
                   const SizedBox(height: 14),
 
-                  _buildFechaLetraField(
-                    label: 'Inicio de la Letra (opcional)',
-                    valor: _inicioLetra,
-                    onChanged: (v) => _inicioLetra = v,
-                  ),
-                  const SizedBox(height: 14),
                   _buildFechaLetraField(
                     label: 'Vencimiento de la Letra (opcional)',
                     valor: _vencimientoLetra,

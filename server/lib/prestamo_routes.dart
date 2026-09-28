@@ -64,7 +64,6 @@ Router buildPrestamoRouter() {
         frecuenciaPago: body['frecuenciaPago'] as String,
         fechaInicio: DateTime.parse(body['fechaInicio'] as String),
         numeroCuotas: body['numeroCuotas'] as int,
-        fechaInicioLetra: _fechaOpcional(body['fechaInicioLetra']),
         fechaVencimientoLetra: _fechaOpcional(body['fechaVencimientoLetra']),
         movimientosPlanificados: movimientos,
       );
@@ -113,7 +112,6 @@ Router buildPrestamoRouter() {
         frecuenciaPago: body['frecuenciaPago'] as String,
         fechaInicio: DateTime.parse(body['fechaInicio'] as String),
         numeroCuotas: body['numeroCuotas'] as int,
-        fechaInicioLetra: _fechaOpcional(body['fechaInicioLetra']),
         fechaVencimientoLetra: _fechaOpcional(body['fechaVencimientoLetra']),
       );
       return jsonResponse({'ok': true});

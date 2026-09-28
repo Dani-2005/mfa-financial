@@ -138,9 +138,7 @@ CREATE TABLE prestamos (
     -- Plazo fijo del préstamo: cuántos periodos (cuotas) tiene en total.
     numero_cuotas INT NOT NULL,
     fecha_inicio DATE NOT NULL,
-    -- Letra de cambio del préstamo (opcional): cuándo inicia y cuándo vence.
-    -- Van juntas: o las dos o ninguna.
-    fecha_inicio_letra DATE NULL,
+    -- Vencimiento de la letra de cambio del préstamo (opcional).
     fecha_vencimiento_letra DATE NULL,
     estado ENUM('Acumulacion', 'Renta_Fija', 'Activo', 'Pagado', 'Mora', 'Anulado') DEFAULT 'Activo',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
