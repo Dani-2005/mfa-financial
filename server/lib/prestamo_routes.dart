@@ -19,6 +19,13 @@ Router buildPrestamoRouter() {
     return jsonResponse({'prestamos': prestamos});
   });
 
+  router.get('/estados', (Request request) async {
+    final user = await usuarioAutenticado(request);
+    if (user == null) return errorResponse('Sesión no válida.', status: 401);
+    final estados = await _prestamoService.fetchEstados();
+    return jsonResponse({'estados': estados});
+  });
+
   router.get('/next-codigo', (Request request) async {
     final user = await usuarioAutenticado(request);
     if (user == null) return errorResponse('Sesión no válida.', status: 401);
@@ -44,6 +51,7 @@ Router buildPrestamoRouter() {
         codigoReferencia: body['codigoReferencia'] as String,
         nombrePrestamo: body['nombrePrestamo'] as String?,
         clienteId: body['clienteId'] as int,
+        estadoId: body['estadoId'] as int?,
         tipoTasa: body['tipoTasa'] as String,
         tipoCalculo: body['tipoCalculo'] as String,
         capitalInicial: (body['capitalInicial'] as num).toDouble(),
@@ -90,6 +98,7 @@ Router buildPrestamoRouter() {
         prestamoId: prestamoId,
         nombrePrestamo: body['nombrePrestamo'] as String?,
         clienteId: body['clienteId'] as int,
+        estadoId: body['estadoId'] as int?,
         tipoTasa: body['tipoTasa'] as String,
         tipoCalculo: body['tipoCalculo'] as String,
         capitalInicial: (body['capitalInicial'] as num).toDouble(),

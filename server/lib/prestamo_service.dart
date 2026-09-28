@@ -97,6 +97,18 @@ class PrestamoService {
     }).toList();
   }
 
+  /// Catálogo de estados de Venezuela, para el selector del formulario de
+  /// préstamo.
+  Future<List<Map<String, dynamic>>> fetchEstados() async {
+    final result = await DatabaseService.instance.query(
+      'SELECT estado_id, nombre FROM estados ORDER BY nombre',
+    );
+    return result.rows.map((row) {
+      final f = row.typedAssoc();
+      return {'estado_id': f['estado_id'], 'nombre': f['nombre']};
+    }).toList();
+  }
+
   /// Trae los préstamos (activos y finalizados) con los datos ya
   /// formateados para las tarjetas de la pantalla de listado (monto,
   /// progreso, estado de pago...). Los finalizados (activo=false) se
@@ -107,6 +119,7 @@ class PrestamoService {
       'SELECT p.prestamo_id, p.codigo_referencia, p.nombre_prestamo, p.capital_inicial, p.balance_actual, '
       'p.tasa_interes_mensual, p.tipo_tasa, p.tipo_calculo, p.frecuencia_pago, p.fecha_inicio, '
       'p.numero_cuotas, p.mes_cambio_capitalizacion, p.estado, p.activo, c.nombre_cliente, c.tipo_cliente, '
+      'p.estado_id, e.nombre AS estado_nombre, '
       "(SELECT COUNT(*) FROM cuotas cu WHERE cu.prestamo_id = p.prestamo_id AND cu.interes_capitalizado = FALSE) "
       'AS cuotas_cobrables, '
       "(SELECT COUNT(*) FROM cuotas cu WHERE cu.prestamo_id = p.prestamo_id AND cu.interes_capitalizado = FALSE "
@@ -118,6 +131,7 @@ class PrestamoService {
       'v.salud_pago '
       'FROM prestamos p '
       'JOIN clientes c ON c.cliente_id = p.cliente_id '
+      'LEFT JOIN estados e ON e.estado_id = p.estado_id '
       'LEFT JOIN vista_salud_prestamos v ON v.prestamo_id = p.prestamo_id '
       'ORDER BY p.created_at DESC',
     );
@@ -177,6 +191,8 @@ class PrestamoService {
         'name': nombreCliente,
         'code': '#${f['codigo_referencia']}',
         'nombrePrestamo': f['nombre_prestamo'],
+        'estadoId': f['estado_id'],
+        'estadoNombre': f['estado_nombre'],
         'frecuencia': f['frecuencia_pago'],
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
@@ -377,6 +393,7 @@ class PrestamoService {
     required String codigoReferencia,
     String? nombrePrestamo,
     required int clienteId,
+    int? estadoId,
     required String tipoTasa,
     required String tipoCalculo,
     required double capitalInicial,
@@ -425,15 +442,16 @@ class PrestamoService {
 
     final result = await DatabaseService.instance.query(
       'INSERT INTO prestamos '
-      '(codigo_referencia, nombre_prestamo, cliente_id, tipo_tasa, tipo_calculo, capital_inicial, balance_actual, '
+      '(codigo_referencia, nombre_prestamo, cliente_id, estado_id, tipo_tasa, tipo_calculo, capital_inicial, balance_actual, '
       'tasa_interes_mensual, mes_cambio_tasa, nueva_tasa_interes, mes_cambio_capitalizacion, '
       'frecuencia_pago, fecha_inicio, numero_cuotas, estado) '
-      'VALUES (:codigo, :nombre, :clienteId, :tipoTasa, :tipoCalculo, :capital, :capital, :tasa, :mesCambio, :nuevaTasa, '
+      'VALUES (:codigo, :nombre, :clienteId, :estadoId, :tipoTasa, :tipoCalculo, :capital, :capital, :tasa, :mesCambio, :nuevaTasa, '
       ':mesCambioCap, :frecuencia, :fechaInicio, :numeroCuotas, :estado)',
       {
         'codigo': codigoReferencia,
         'nombre': (nombrePrestamo == null || nombrePrestamo.trim().isEmpty) ? null : nombrePrestamo.trim(),
         'clienteId': clienteId,
+        'estadoId': estadoId,
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
         'capital': capitalInicial,
@@ -506,6 +524,7 @@ class PrestamoService {
         'codigo_referencia': codigoReferencia,
         'nombre_prestamo': nombrePrestamo,
         'cliente_id': clienteId,
+        'estado_id': estadoId,
         'tipo_tasa': tipoTasa,
         'tipo_calculo': tipoCalculo,
         'capital_inicial': capitalInicial,
@@ -541,7 +560,7 @@ class PrestamoService {
   /// términos nuevos, sin alterar los pagos ya cobrados.
   Future<Map<String, dynamic>> fetchParaEditar(int prestamoId) async {
     final result = await DatabaseService.instance.query(
-      'SELECT codigo_referencia, nombre_prestamo, cliente_id, tipo_tasa, tipo_calculo, capital_inicial, '
+      'SELECT codigo_referencia, nombre_prestamo, cliente_id, estado_id, tipo_tasa, tipo_calculo, capital_inicial, '
       'tasa_interes_mensual, mes_cambio_tasa, nueva_tasa_interes, mes_cambio_capitalizacion, '
       'frecuencia_pago, fecha_inicio, numero_cuotas, estado, activo '
       'FROM prestamos WHERE prestamo_id = :id',
@@ -569,6 +588,7 @@ class PrestamoService {
       'codigoReferencia': f['codigo_referencia'],
       'nombrePrestamo': f['nombre_prestamo'],
       'clienteId': f['cliente_id'],
+      'estadoId': f['estado_id'],
       'tipoTasa': f['tipo_tasa'],
       'tipoCalculo': f['tipo_calculo'],
       'capitalInicial': _toDouble(f['capital_inicial']),
@@ -600,6 +620,7 @@ class PrestamoService {
     required int prestamoId,
     String? nombrePrestamo,
     required int clienteId,
+    int? estadoId,
     required String tipoTasa,
     required String tipoCalculo,
     required double capitalInicial,
@@ -716,7 +737,8 @@ class PrestamoService {
     );
 
     await DatabaseService.instance.query(
-      'UPDATE prestamos SET nombre_prestamo = :nombre, cliente_id = :clienteId, tipo_tasa = :tipoTasa, '
+      'UPDATE prestamos SET nombre_prestamo = :nombre, cliente_id = :clienteId, estado_id = :estadoId, '
+      'tipo_tasa = :tipoTasa, '
       'tipo_calculo = :tipoCalculo, capital_inicial = :capital, tasa_interes_mensual = :tasa, '
       'mes_cambio_tasa = :mesCambio, nueva_tasa_interes = :nuevaTasa, mes_cambio_capitalizacion = :mesCambioCap, '
       'frecuencia_pago = :frecuencia, fecha_inicio = :fechaInicio, numero_cuotas = :numeroCuotas, '
@@ -724,6 +746,7 @@ class PrestamoService {
       {
         'nombre': (nombrePrestamo == null || nombrePrestamo.trim().isEmpty) ? null : nombrePrestamo.trim(),
         'clienteId': clienteId,
+        'estadoId': estadoId,
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
         'capital': capitalInicial,
@@ -809,6 +832,7 @@ class PrestamoService {
         'evento': 'edicion de terminos',
         'nombre_prestamo': nombrePrestamo,
         'cliente_id': clienteId,
+        'estado_id': estadoId,
         'tipo_tasa': tipoTasa,
         'tipo_calculo': tipoCalculo,
         'capital_inicial': capitalInicial,

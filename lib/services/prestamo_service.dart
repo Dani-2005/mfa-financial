@@ -82,6 +82,14 @@ class PrestamoService {
     return (response.data['movimientos'] as List).cast<Map<String, dynamic>>();
   }
 
+  /// Catálogo de estados de Venezuela (`estado_id`, `nombre`), para el
+  /// selector del formulario de préstamo.
+  Future<List<Map<String, dynamic>>> fetchEstados() async {
+    final response = await ApiClient.instance.get('/api/prestamos/estados', headers: await _headers());
+    if (!response.ok) throw StateError('No se pudieron cargar los estados.');
+    return (response.data['estados'] as List).cast<Map<String, dynamic>>();
+  }
+
   Future<String> generateNextCodigo() async {
     final response = await ApiClient.instance.get('/api/prestamos/next-codigo', headers: await _headers());
     if (!response.ok) throw StateError('No se pudo generar el código de referencia.');
@@ -95,6 +103,7 @@ class PrestamoService {
     required String codigoReferencia,
     String? nombrePrestamo,
     required int clienteId,
+    required int estadoId,
     required String tipoTasa,
     required String tipoCalculo,
     required double capitalInicial,
@@ -114,6 +123,7 @@ class PrestamoService {
         'codigoReferencia': codigoReferencia,
         'nombrePrestamo': nombrePrestamo,
         'clienteId': clienteId,
+        'estadoId': estadoId,
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
         'capitalInicial': capitalInicial,
@@ -162,6 +172,7 @@ class PrestamoService {
     required int prestamoId,
     String? nombrePrestamo,
     required int clienteId,
+    required int estadoId,
     required String tipoTasa,
     required String tipoCalculo,
     required double capitalInicial,
@@ -179,6 +190,7 @@ class PrestamoService {
       body: {
         'nombrePrestamo': nombrePrestamo,
         'clienteId': clienteId,
+        'estadoId': estadoId,
         'tipoTasa': tipoTasa,
         'tipoCalculo': tipoCalculo,
         'capitalInicial': capitalInicial,

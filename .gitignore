@@ -53,3 +53,6 @@ server/lib/db_config.dart
 
 # Builds empaquetados para distribuir (no son código fuente).
 *.zip
+
+# Configuración local de Claude Code
+.claude/settings.local.json

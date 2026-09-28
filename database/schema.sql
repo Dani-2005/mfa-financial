@@ -88,6 +88,24 @@ CREATE TABLE clientes (
 );
 
 -- ------------------------------------------------------------
+-- Tabla: estados
+-- Catálogo de los estados de Venezuela (23 + Distrito Capital), para
+-- ubicar cada préstamo y agruparlos por estado en la pantalla de
+-- Préstamos. No confundir con prestamos.estado (Activo, Pagado...).
+-- ------------------------------------------------------------
+CREATE TABLE estados (
+    estado_id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(50) UNIQUE NOT NULL
+);
+
+INSERT INTO estados (nombre) VALUES
+    ('Amazonas'), ('Anzoátegui'), ('Apure'), ('Aragua'), ('Barinas'),
+    ('Bolívar'), ('Carabobo'), ('Cojedes'), ('Delta Amacuro'), ('Distrito Capital'),
+    ('Falcón'), ('Guárico'), ('Lara'), ('Mérida'), ('Miranda'),
+    ('Monagas'), ('Nueva Esparta'), ('Portuguesa'), ('Sucre'), ('Táchira'),
+    ('Trujillo'), ('La Guaira'), ('Yaracuy'), ('Zulia');
+
+-- ------------------------------------------------------------
 -- Tabla: prestamos
 -- ------------------------------------------------------------
 -- El tipo de préstamo se descompone en dos ejes independientes
@@ -99,6 +117,9 @@ CREATE TABLE prestamos (
     prestamo_id INT AUTO_INCREMENT PRIMARY KEY,
     codigo_referencia VARCHAR(50) UNIQUE NOT NULL,
     cliente_id INT NOT NULL,
+    -- Estado de Venezuela donde se ubica el préstamo. NULL solo en los
+    -- préstamos creados antes de existir este campo ("Sin estado").
+    estado_id INT NULL,
     tipo_tasa ENUM('Fija', 'Variable') NOT NULL DEFAULT 'Fija',
     tipo_calculo ENUM('Simple', 'Compuesto') NOT NULL DEFAULT 'Simple',
     capital_inicial DECIMAL(15,2) NOT NULL,
@@ -122,7 +143,9 @@ CREATE TABLE prestamos (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     activo BOOLEAN DEFAULT TRUE,
     FOREIGN KEY (cliente_id) REFERENCES clientes(cliente_id),
+    FOREIGN KEY (estado_id) REFERENCES estados(estado_id),
     INDEX idx_prestamos_estado (estado),
+    INDEX idx_prestamos_estado_id (estado_id),
     CHECK (capital_inicial > 0),
     CHECK (balance_actual >= 0),
     CHECK (numero_cuotas > 0),

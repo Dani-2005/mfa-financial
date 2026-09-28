@@ -381,6 +381,27 @@ class _LoansScreenState extends State<LoansScreen> {
       return matchesSearch && matchesTab;
     }).toList();
 
+    // Agrupados por estado (alfabético, "Sin estado" al final); dentro de
+    // cada estado se conserva el orden que trae el servidor (más recientes
+    // primero). Se ordena antes de paginar para que cada grupo quede junto.
+    final ordenOriginal = {for (var i = 0; i < filtered.length; i++) filtered[i]: i};
+    filtered.sort((a, b) {
+      final ea = a['estadoNombre'] as String?;
+      final eb = b['estadoNombre'] as String?;
+      if (ea != eb) {
+        if (ea == null) return 1;
+        if (eb == null) return -1;
+        final cmp = _sinAcentos(ea).compareTo(_sinAcentos(eb));
+        if (cmp != 0) return cmp;
+      }
+      return ordenOriginal[a]!.compareTo(ordenOriginal[b]!);
+    });
+    final conteoPorEstado = <String?, int>{};
+    for (final loan in filtered) {
+      final estado = loan['estadoNombre'] as String?;
+      conteoPorEstado[estado] = (conteoPorEstado[estado] ?? 0) + 1;
+    }
+
     int totalPages = (filtered.length / _itemsPerPage).ceil();
     if (totalPages == 0) totalPages = 1;
     if (_currentPage > totalPages) _currentPage = totalPages;
@@ -404,14 +425,53 @@ class _LoansScreenState extends State<LoansScreen> {
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final loan in paginated) ...[
-          _buildLoanCard(context, loan),
+        for (var i = 0; i < paginated.length; i++) ...[
+          if (i == 0 || paginated[i]['estadoNombre'] != paginated[i - 1]['estadoNombre'])
+            _buildEstadoHeader(
+              paginated[i]['estadoNombre'] as String?,
+              conteoPorEstado[paginated[i]['estadoNombre']] ?? 0,
+              primero: i == 0,
+            ),
+          _buildLoanCard(context, paginated[i]),
           const SizedBox(height: 12),
         ],
         const SizedBox(height: 8),
         _buildPagination(totalPages, filtered.length),
       ],
+    );
+  }
+
+  static String _sinAcentos(String s) => s
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u');
+
+  /// Encabezado de grupo en el listado, p. ej. "Lara (5)". El conteo es del
+  /// grupo completo (con los filtros aplicados), no solo de la página actual.
+  Widget _buildEstadoHeader(String? estado, int cantidad, {required bool primero}) {
+    return Padding(
+      padding: EdgeInsets.only(top: primero ? 0 : 12, bottom: 10, left: 4),
+      child: Row(
+        children: [
+          Icon(Icons.location_on_outlined, size: 18, color: Colors.grey.shade800),
+          const SizedBox(width: 6),
+          Text(
+            '${estado ?? 'Sin estado'} ($cantidad)',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.black,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Divider(color: Colors.grey.shade300, height: 1)),
+        ],
+      ),
     );
   }
 
@@ -2337,6 +2397,11 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   bool _isLoadingClientes = true;
   String? _clientesLoadError;
 
+  List<Map<String, dynamic>> _estados = [];
+  int? _selectedEstadoId;
+  bool _isLoadingEstados = true;
+  String? _estadosLoadError;
+
   final List<_MovimientoPlanEntry> _movimientos = [];
 
   bool _isSaving = false;
@@ -2363,6 +2428,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
       _loadCodigoReferencia();
     }
     _loadClientes();
+    _loadEstados();
   }
 
   void _prefillDesdeExistente(Map<String, dynamic> e) {
@@ -2370,6 +2436,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
     _codeController.text = _codigoGenerado!;
     _nombreController.text = (e['nombrePrestamo'] as String?) ?? '';
     _selectedClienteId = e['clienteId'] as int;
+    _selectedEstadoId = e['estadoId'] as int?;
     _selectedTipoTasa = e['tipoTasa'] as String;
     _selectedTipoCalculo = e['tipoCalculo'] as String;
     _amountController.text = MoneyInputFormatter.format(e['capitalInicial'] as double);
@@ -2429,6 +2496,27 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
     }
   }
 
+  Future<void> _loadEstados() async {
+    setState(() {
+      _isLoadingEstados = true;
+      _estadosLoadError = null;
+    });
+    try {
+      final estados = await _prestamoService.fetchEstados();
+      if (!mounted) return;
+      setState(() {
+        _estados = estados;
+        _isLoadingEstados = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingEstados = false;
+        _estadosLoadError = e is NoConnectionException ? e.message : 'No se pudieron cargar los estados.';
+      });
+    }
+  }
+
   @override
   void dispose() {
     _codeController.dispose();
@@ -2462,7 +2550,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   Future<void> _saveLoan() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedClienteId == null || _codigoGenerado == null) {
+    if (_selectedClienteId == null || _selectedEstadoId == null || _codigoGenerado == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Completa todos los campos requeridos')),
       );
@@ -2479,6 +2567,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
           prestamoId: widget.prestamoId!,
           nombrePrestamo: _nombreController.text.trim().isEmpty ? null : _nombreController.text.trim(),
           clienteId: _selectedClienteId!,
+          estadoId: _selectedEstadoId!,
           tipoTasa: _selectedTipoTasa,
           tipoCalculo: _selectedTipoCalculo,
           capitalInicial: MoneyInputFormatter.parse(_amountController.text)!,
@@ -2517,6 +2606,7 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
         codigoReferencia: _codigoGenerado!,
         nombrePrestamo: _nombreController.text.trim().isEmpty ? null : _nombreController.text.trim(),
         clienteId: _selectedClienteId!,
+        estadoId: _selectedEstadoId!,
         tipoTasa: _selectedTipoTasa,
         tipoCalculo: _selectedTipoCalculo,
         capitalInicial: MoneyInputFormatter.parse(_amountController.text)!,
@@ -2704,6 +2794,51 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                         ),
                         TextButton(
                           onPressed: _loadClientes,
+                          child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+
+                  CustomDropdown<int>(
+                    key: ValueKey(
+                      'estado_${_estados.length}_$_isLoadingEstados',
+                    ),
+                    initialValue: _selectedEstadoId,
+                    enabled: !_isLoadingEstados && _estadosLoadError == null,
+                    decoration: _inputDecoration(
+                      _isLoadingEstados ? 'Cargando estados...' : 'Estado',
+                      Icons.location_on_outlined,
+                    ),
+                    items: _estados
+                        .map(
+                          (e) => CustomDropdownItem<int>(
+                            value: e['estado_id'] as int,
+                            label: e['nombre'] as String,
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedEstadoId = value;
+                      });
+                    },
+                    validator: (value) =>
+                        value == null ? 'Selecciona un estado' : null,
+                  ),
+                  if (_estadosLoadError != null) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _estadosLoadError!,
+                            style: TextStyle(fontSize: 11, color: Colors.red.shade700),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _loadEstados,
                           child: const Text('Reintentar', style: TextStyle(fontSize: 12)),
                         ),
                       ],
