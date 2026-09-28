@@ -1488,7 +1488,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
   /// Copia local editable de los datos del préstamo mostrados en la
   /// tarjeta superior: `widget.loan` es la instantánea con la que se abrió
   /// esta pantalla (viene del listado), y tras una Inyección de Capital se
-  /// actualiza aquí el "Saldo Actual" sin necesidad de recargar la lista.
+  /// actualiza aquí el "Capital Actual" sin necesidad de recargar la lista.
   late Map<String, dynamic> _loan;
 
   List<Map<String, dynamic>> _cuotas = [];
@@ -2133,7 +2133,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                           Icons.attach_money,
                         ),
                         _infoItem(
-                          'Saldo Actual',
+                          'Capital Actual',
                           remainingAmount,
                           Icons.account_balance_wallet_outlined,
                         ),
@@ -2320,6 +2320,9 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                   ],
                 ),
               ),
+
+              const SizedBox(height: 14),
+              _buildTotalesCard(),
 
               const SizedBox(height: 14),
               Center(
@@ -2605,6 +2608,186 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Suma un campo numérico (interés o amortización de capital) de las
+  /// cuotas en el [estado] pedido ('Pagado' o 'Pendiente') y no
+  /// capitalizadas — mismo criterio que usa el PDF del Plan de Pagos
+  /// (`plan_pagos_pdf_service.dart`): las cuotas 'Parcial' quedan fuera de
+  /// ambos lados porque no se puede separar con precisión cuánto de ese
+  /// abono fue interés y cuánto capital.
+  double _sumaCuotasPorEstado(String clave, String estado) {
+    return _cuotas
+        .where((c) => c['estado'] == estado && c['capitalizado'] != 'Sí')
+        .fold<double>(0, (suma, c) => suma + ((c[clave] as num?)?.toDouble() ?? 0));
+  }
+
+  /// Suma los movimientos de capital tipo "Retiro" (abonos a capital,
+  /// fuera del cronograma normal de cuotas) — los de tipo "Inyección"
+  /// quedan afuera porque son capital que se agregó al préstamo, no capital
+  /// que el cliente pagó.
+  double _totalRetirosCapital() {
+    return _movimientosCapital
+        .where((m) => m['esInyeccion'] == false)
+        .fold<double>(0, (suma, m) => suma + ((m['montoNumerico'] as num?)?.toDouble() ?? 0));
+  }
+
+  /// Tarjeta de totales del préstamo: intereses pagados/restantes por
+  /// cobrar y capital abonado (el saldo restante ya se ve arriba, como
+  /// "Capital Actual", así que no se repite aquí). Mismos números y mismo
+  /// criterio que el recuadro final del PDF del Plan de Pagos, para que no
+  /// haya sorpresas entre lo que se ve en la app y lo que sale impreso.
+  ///
+  /// Cada total se muestra en su propio "tile" con color e ícono, más
+  /// grande que un dato suelto de la tarjeta de información de arriba (acá
+  /// son 2-3 números, no una docena, así que pueden tener más presencia).
+  /// En escritorio comparten una fila a ancho completo (`Expanded`, nunca
+  /// se amontonan ni saltan de línea); en móvil se apilan a ancho completo
+  /// en vez de encogerse, por la misma razón.
+  Widget _buildTotalesCard() {
+    final cargando = _isLoadingCuotas || _isLoadingMovimientos;
+    final hayParciales = _cuotas.any((c) => c['estado'] == 'Parcial');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 3)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'TOTALES DEL PRÉSTAMO',
+            style: TextStyle(fontSize: 12, color: Colors.black, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+          ),
+          const SizedBox(height: 14),
+          if (cargando)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: SizedBox(
+                height: 18,
+                width: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+              ),
+            )
+          else ...[
+            Builder(builder: (context) {
+              final intereses = _sumaCuotasPorEstado('interesMonto', 'Pagado');
+              final interesesRestantes = _sumaCuotasPorEstado('interesMonto', 'Pendiente');
+              final capitalAbonado =
+                  _sumaCuotasPorEstado('amortizacionMonto', 'Pagado') + _totalRetirosCapital();
+
+              final tiles = [
+                _totalTile(
+                  'Intereses Pagados',
+                  _formatMoneyPreview(intereses),
+                  Icons.check_circle_outline,
+                  Colors.teal.shade700,
+                ),
+                _totalTile(
+                  'Intereses por Cobrar',
+                  _formatMoneyPreview(interesesRestantes),
+                  Icons.hourglass_bottom,
+                  Colors.orange.shade800,
+                ),
+                if (capitalAbonado > 0)
+                  _totalTile(
+                    'Capital Abonado',
+                    _formatMoneyPreview(capitalAbonado),
+                    Icons.trending_down,
+                    Colors.blue.shade700,
+                  ),
+              ];
+
+              // En escritorio hay ancho de sobra para que los tiles compartan
+              // una sola fila; en móvil se apilan a ancho completo (así cada
+              // etiqueta/monto tiene todo el espacio posible, en vez de
+              // encogerse hasta saltar de línea).
+              final esEscritorio = MediaQuery.sizeOf(context).width >= 800;
+              if (esEscritorio) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (int i = 0; i < tiles.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 12),
+                      Expanded(child: tiles[i]),
+                    ],
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  for (int i = 0; i < tiles.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    tiles[i],
+                  ],
+                ],
+              );
+            }),
+            if (hayParciales) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Este préstamo tiene cuotas en Pago Parcial: como no se puede separar con precisión cuánto '
+                'de ese abono fue interés y cuánto capital, esas cuotas no están incluidas en los totales '
+                'de intereses de arriba.',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _totalTile(String label, String value, IconData icon, Color color) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.14), shape: BoxShape.circle),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label.toUpperCase(),
+                  style: TextStyle(fontSize: 9.5, color: Colors.grey.shade700, fontWeight: FontWeight.bold, letterSpacing: 0.3),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.black),
+                    maxLines: 1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
