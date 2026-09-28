@@ -209,18 +209,18 @@ class _ClientsScreenState extends State<ClientsScreen> {
   Widget _buildMobileContent() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: _buildClientsCoreContent(),
+      child: _buildClientsCoreContent(isDesktop: false),
     );
   }
 
   Widget _buildDesktopContent() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 40.0),
-      child: _buildClientsCoreContent(),
+      child: _buildClientsCoreContent(isDesktop: true),
     );
   }
 
-  Widget _buildClientsCoreContent() {
+  Widget _buildClientsCoreContent({required bool isDesktop}) {
     Widget listSection;
 
     if (_isLoading) {
@@ -284,7 +284,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildTopActionsBar(),
+        _buildTopActionsBar(isDesktop: isDesktop),
         const SizedBox(height: 16),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -300,7 +300,9 @@ class _ClientsScreenState extends State<ClientsScreen> {
     );
   }
 
-  Widget _buildTopActionsBar() {
+  /// En computadora el botón principal va más grande (más fácil de
+  /// encontrar y de pulsar con el mouse); en celular se mantiene compacto.
+  Widget _buildTopActionsBar({required bool isDesktop}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -317,12 +319,14 @@ class _ClientsScreenState extends State<ClientsScreen> {
         const SizedBox(width: 12),
         ElevatedButton.icon(
           onPressed: () => _showNewClientModal(context),
-          icon: const Icon(Icons.person_add_alt_1, size: 16, color: Colors.white),
-          label: const Text('Nuevo Cliente', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+          icon: Icon(Icons.person_add_alt_1, size: isDesktop ? 22 : 16, color: Colors.white),
+          label: Text('Nuevo Cliente', style: TextStyle(color: Colors.white, fontSize: isDesktop ? 15 : 12, fontWeight: FontWeight.bold)),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            padding: isDesktop
+                ? const EdgeInsets.symmetric(horizontal: 24, vertical: 18)
+                : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(isDesktop ? 26 : 20)),
             elevation: 2,
           ),
         ),

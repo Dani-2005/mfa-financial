@@ -325,7 +325,7 @@ class _LoansScreenState extends State<LoansScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Column(
         children: [
-          _buildTopActions(),
+          _buildTopActions(isDesktop: false),
           const SizedBox(height: 14),
           _buildSearchBar(),
           const SizedBox(height: 14),
@@ -343,7 +343,7 @@ class _LoansScreenState extends State<LoansScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildTopActions(),
+          _buildTopActions(isDesktop: true),
           const SizedBox(height: 16),
           Row(
             children: [
@@ -569,7 +569,9 @@ class _LoansScreenState extends State<LoansScreen> {
     }
   }
 
-  Widget _buildTopActions() {
+  /// En computadora el botón "Nuevo Préstamo" va más grande (más fácil de
+  /// encontrar y de pulsar con el mouse); en celular se mantiene compacto.
+  Widget _buildTopActions({required bool isDesktop}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -659,27 +661,26 @@ class _LoansScreenState extends State<LoansScreen> {
                 );
                 _loadLoans();
               },
-              icon: const Icon(
+              icon: Icon(
                 Icons.add_circle_outline,
-                size: 18,
+                size: isDesktop ? 22 : 18,
                 color: Colors.white,
               ),
-              label: const Text(
+              label: Text(
                 'Nuevo Préstamo',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: isDesktop ? 15 : 12,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color.fromARGB(255, 0, 0, 0),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
+                padding: isDesktop
+                    ? const EdgeInsets.symmetric(horizontal: 24, vertical: 18)
+                    : const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(isDesktop ? 26 : 20),
                 ),
                 elevation: 2,
               ),

@@ -266,7 +266,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   Widget _buildMobileContent() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: _buildPaymentsCoreContent(),
+      child: _buildPaymentsCoreContent(isDesktop: false),
     );
   }
 
@@ -274,12 +274,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   Widget _buildDesktopContent() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 40.0),
-      child: _buildPaymentsCoreContent(),
+      child: _buildPaymentsCoreContent(isDesktop: true),
     );
   }
 
   // --- NÚCLEO DE PAGOS ---
-  Widget _buildPaymentsCoreContent() {
+  Widget _buildPaymentsCoreContent({required bool isDesktop}) {
     Widget listSection;
 
     if (_isLoading) {
@@ -340,7 +340,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildTopActionsBar(),
+        _buildTopActionsBar(isDesktop: isDesktop),
         const SizedBox(height: 16),
         _buildFilterBar(),
         const SizedBox(height: 20),
@@ -349,7 +349,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     );
   }
 
-  Widget _buildTopActionsBar() {
+  /// En computadora el botón principal va más grande (más fácil de
+  /// encontrar y de pulsar con el mouse); en celular se mantiene compacto.
+  Widget _buildTopActionsBar({required bool isDesktop}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -366,12 +368,14 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         const SizedBox(width: 12),
         ElevatedButton.icon(
           onPressed: () => _showNewPaymentModal(context),
-          icon: const Icon(Icons.add_circle_outline, size: 16, color: Colors.white),
-          label: const Text('Registrar Pago', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+          icon: Icon(Icons.add_circle_outline, size: isDesktop ? 22 : 16, color: Colors.white),
+          label: Text('Registrar Pago', style: TextStyle(color: Colors.white, fontSize: isDesktop ? 15 : 12, fontWeight: FontWeight.bold)),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            padding: isDesktop
+                ? const EdgeInsets.symmetric(horizontal: 24, vertical: 18)
+                : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(isDesktop ? 26 : 20)),
             elevation: 2,
           ),
         ),
