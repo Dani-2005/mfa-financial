@@ -170,8 +170,7 @@ class PagoService {
       'lineas': [
         {
           'fecha': _formatDateDisplay(fecha),
-          'descripcion': 'Saldo Inicial - Periodo ${_meses[fecha.month - 1]} '
-              '(Cuota $periodo de ${f['numero_cuotas']})',
+          'descripcion': 'Saldo Inicial - Periodo ${_meses[fecha.month - 1]}',
           'cantidad': 1,
           'precio': _toDouble(f['saldo_inicio_periodo']),
         },
