@@ -97,7 +97,6 @@ class _AuditAndReportsScreenState extends State<AuditAndReportsScreen> {
       'Monto Aprobado': true,
       'Plazo': true,
       'Estatus': true,
-      'Intereses Pagados': true,
       'Capital Abonado': true,
     },
     'Pagos': {

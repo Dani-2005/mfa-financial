@@ -63,8 +63,7 @@ class PlanPagosPdfService {
             pw.SizedBox(height: 6),
             pw.Text(
               '* Las cuotas con Capitalizado = "Sí" salen como "Pagado" aunque el cliente no las pagó: '
-              'el interés se reinvierte automáticamente en el saldo en vez de cobrarse, así que no '
-              'cuentan en los totales pagados de abajo.',
+              'el interés se reinvierte automáticamente en el saldo en vez de cobrarse.',
               style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700),
             ),
           ],
@@ -77,16 +76,18 @@ class PlanPagosPdfService {
     return doc.save();
   }
 
-  /// Suma un campo numérico (interés o amortización de capital) de las
-  /// cuotas ya pagadas (estado='Pagado') y no capitalizadas: el interés
-  /// capitalizado se reinvierte en el saldo en vez de cobrarse, así que esas
-  /// cuotas no representan dinero realmente pagado por el cliente. Las
-  /// cuotas 'Pendiente'/'Parcial' no aportan aquí porque este endpoint no
-  /// trae el desglose de cuánto de un pago parcial fue interés o capital.
-  static double _sumaPagada(List<Map<String, dynamic>> cuotas, String clave) {
+  /// Suma la amortización de capital de las cuotas ya pagadas (estado=
+  /// 'Pagado') y no capitalizadas. En este modelo de préstamo las cuotas
+  /// normales son de solo interés (la amortización siempre sale en 0 — ver
+  /// loan_calculator.dart), así que en la práctica el capital abonado sale
+  /// casi siempre de [_totalRetirosCapital]; esta suma queda por si el
+  /// modelo cambia más adelante. No incluye cuotas 'Pendiente'/'Parcial' ni
+  /// capitalizadas, así que nunca es una aproximación: solo cuenta capital
+  /// realmente cobrado.
+  static double _capitalAmortizadoEnCuotas(List<Map<String, dynamic>> cuotas) {
     return cuotas
         .where((c) => c['estado'] == 'Pagado' && c['capitalizado'] != 'Sí')
-        .fold<double>(0, (suma, c) => suma + ((c[clave] as num?)?.toDouble() ?? 0));
+        .fold<double>(0, (suma, c) => suma + ((c['amortizacionMonto'] as num?)?.toDouble() ?? 0));
   }
 
   /// Suma los movimientos de capital tipo "Retiro": un abono a capital
@@ -101,18 +102,19 @@ class PlanPagosPdfService {
         .fold<double>(0, (suma, m) => suma + ((m['montoNumerico'] as num?)?.toDouble() ?? 0));
   }
 
-  /// Recuadro final con el total de intereses pagados, el total de capital
-  /// abonado (si el préstamo ya tuvo abonos — no se muestra si todavía es
-  /// $0, p. ej. un préstamo recién iniciado o uno en fase de capitalización
-  /// donde por ahora solo se cobra interés) y, siempre, el capital restante
-  /// actual del préstamo (aunque sea $0, que significa que ya está pagado).
+  /// Recuadro final con el total de capital abonado (si el préstamo ya tuvo
+  /// abonos — no se muestra si todavía es $0) y, siempre, el capital
+  /// restante actual del préstamo (aunque sea $0, que significa que ya está
+  /// pagado). No incluye intereses: a diferencia del capital, el interés de
+  /// una cuota en pago parcial no se puede separar con precisión de su
+  /// capital con los datos disponibles aquí, y se prefiere no mostrar un
+  /// número aproximado.
   static pw.Widget _buildTotalesPagados(
     Map<String, dynamic> detalle,
     List<Map<String, dynamic>> cuotas,
     List<Map<String, dynamic>> movimientos,
   ) {
-    final totalIntereses = _sumaPagada(cuotas, 'interesMonto');
-    final totalCapital = _sumaPagada(cuotas, 'amortizacionMonto') + _totalRetirosCapital(movimientos);
+    final totalCapital = _capitalAmortizadoEnCuotas(cuotas) + _totalRetirosCapital(movimientos);
     final saldoActual = detalle['saldoActual'] as String? ?? _formatMoney(0);
 
     return pw.Container(
@@ -125,12 +127,10 @@ class PlanPagosPdfService {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          _filaTotal('TOTAL DE INTERESES PAGADOS', totalIntereses),
           if (totalCapital > 0) ...[
-            pw.SizedBox(height: 6),
             _filaTotal('TOTAL DE CAPITAL ABONADO', totalCapital),
+            pw.SizedBox(height: 6),
           ],
-          pw.SizedBox(height: 6),
           _filaTotalTexto('CAPITAL RESTANTE', saldoActual),
         ],
       ),
