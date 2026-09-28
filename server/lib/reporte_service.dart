@@ -47,10 +47,14 @@ class ReporteService {
   Future<List<Map<String, dynamic>>> _fetchPrestamos(int? clienteId) async {
     final result = await DatabaseService.instance.query(
       'SELECT p.codigo_referencia, p.nombre_prestamo, c.documento_identidad, p.capital_inicial, p.numero_cuotas, p.estado, '
-      // No se incluye interés pagado: a diferencia del capital, el interés de
-      // una cuota en pago parcial no se puede separar con precisión de su
-      // capital con los datos disponibles, y se prefiere no mostrar un
-      // número aproximado (ver la misma nota en plan_pagos_pdf_service.dart).
+      // Interés realmente pagado: solo cuotas Pagadas y no capitalizadas (el
+      // interés capitalizado se reinvierte en el saldo, no se cobra). No
+      // incluye cuotas 'Parcial' (no se puede separar con precisión cuánto
+      // de ese abono fue interés vs. capital) — en la práctica casi no hay
+      // pagos parciales, así que esto rara vez excluye algo real.
+      "(SELECT COALESCE(SUM(cu.monto_interes_generado), 0) FROM cuotas cu "
+      "WHERE cu.prestamo_id = p.prestamo_id AND cu.estado = 'Pagado' AND cu.interes_capitalizado = FALSE) "
+      'AS intereses_pagados, '
       // Capital abonado: la amortización de las cuotas pagadas (siempre 0 en
       // este modelo de préstamo, ver loan_calculator.dart) más los "Retiro"
       // de transacciones_capital, que es como se guarda un Abono a Capital o
@@ -75,6 +79,7 @@ class ReporteService {
         'Monto Aprobado': _formatMoney(_toDouble(f['capital_inicial'])),
         'Plazo': '${f['numero_cuotas']} cuotas',
         'Estatus': f['estado'],
+        'Intereses Pagados': _formatMoney(_toDouble(f['intereses_pagados'])),
         'Capital Abonado': _formatMoney(_toDouble(f['capital_abonado'])),
       };
     }).toList();

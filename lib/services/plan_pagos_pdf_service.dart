@@ -63,7 +63,17 @@ class PlanPagosPdfService {
             pw.SizedBox(height: 6),
             pw.Text(
               '* Las cuotas con Capitalizado = "Sí" salen como "Pagado" aunque el cliente no las pagó: '
-              'el interés se reinvierte automáticamente en el saldo en vez de cobrarse.',
+              'el interés se reinvierte automáticamente en el saldo en vez de cobrarse, así que no '
+              'cuenta en el total de intereses pagados de abajo.',
+              style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700),
+            ),
+          ],
+          if (cuotas.any((c) => c['estado'] == 'Parcial')) ...[
+            pw.SizedBox(height: 6),
+            pw.Text(
+              '* Este préstamo tiene cuotas en Pago Parcial: como no se puede separar con precisión cuánto '
+              'de ese abono fue interés y cuánto capital, esas cuotas no están incluidas en los totales de '
+              'intereses de abajo (ni en Pagados ni en Restantes por Cobrar).',
               style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700),
             ),
           ],
@@ -76,18 +86,18 @@ class PlanPagosPdfService {
     return doc.save();
   }
 
-  /// Suma la amortización de capital de las cuotas ya pagadas (estado=
-  /// 'Pagado') y no capitalizadas. En este modelo de préstamo las cuotas
-  /// normales son de solo interés (la amortización siempre sale en 0 — ver
-  /// loan_calculator.dart), así que en la práctica el capital abonado sale
-  /// casi siempre de [_totalRetirosCapital]; esta suma queda por si el
-  /// modelo cambia más adelante. No incluye cuotas 'Pendiente'/'Parcial' ni
-  /// capitalizadas, así que nunca es una aproximación: solo cuenta capital
-  /// realmente cobrado.
-  static double _capitalAmortizadoEnCuotas(List<Map<String, dynamic>> cuotas) {
+  /// Suma un campo numérico (interés o amortización de capital) de las
+  /// cuotas en el [estado] pedido ('Pagado' o 'Pendiente') y no
+  /// capitalizadas: el interés capitalizado se reinvierte en el saldo en
+  /// vez de cobrarse, así que esas cuotas no representan dinero que el
+  /// cliente pagó o debe pagar de verdad. Las cuotas 'Parcial' quedan
+  /// fuera de ambos lados (ver el aviso que se muestra en el PDF cuando
+  /// las hay): no se puede separar con precisión cuánto de ese abono fue
+  /// interés y cuánto capital con los datos disponibles aquí.
+  static double _sumaPorEstado(List<Map<String, dynamic>> cuotas, String clave, String estado) {
     return cuotas
-        .where((c) => c['estado'] == 'Pagado' && c['capitalizado'] != 'Sí')
-        .fold<double>(0, (suma, c) => suma + ((c['amortizacionMonto'] as num?)?.toDouble() ?? 0));
+        .where((c) => c['estado'] == estado && c['capitalizado'] != 'Sí')
+        .fold<double>(0, (suma, c) => suma + ((c[clave] as num?)?.toDouble() ?? 0));
   }
 
   /// Suma los movimientos de capital tipo "Retiro": un abono a capital
@@ -102,19 +112,20 @@ class PlanPagosPdfService {
         .fold<double>(0, (suma, m) => suma + ((m['montoNumerico'] as num?)?.toDouble() ?? 0));
   }
 
-  /// Recuadro final con el total de capital abonado (si el préstamo ya tuvo
-  /// abonos — no se muestra si todavía es $0) y, siempre, el capital
-  /// restante actual del préstamo (aunque sea $0, que significa que ya está
-  /// pagado). No incluye intereses: a diferencia del capital, el interés de
-  /// una cuota en pago parcial no se puede separar con precisión de su
-  /// capital con los datos disponibles aquí, y se prefiere no mostrar un
-  /// número aproximado.
+  /// Recuadro final con los totales de interés (Pagados y Restantes por
+  /// Cobrar — ninguno de los dos incluye cuotas 'Parcial', ver el aviso que
+  /// se muestra en el PDF cuando las hay), el total de capital abonado (si
+  /// el préstamo ya tuvo abonos — no se muestra si todavía es $0) y,
+  /// siempre, el capital restante actual del préstamo (aunque sea $0, que
+  /// significa que ya está pagado).
   static pw.Widget _buildTotalesPagados(
     Map<String, dynamic> detalle,
     List<Map<String, dynamic>> cuotas,
     List<Map<String, dynamic>> movimientos,
   ) {
-    final totalCapital = _capitalAmortizadoEnCuotas(cuotas) + _totalRetirosCapital(movimientos);
+    final totalInteresesPagados = _sumaPorEstado(cuotas, 'interesMonto', 'Pagado');
+    final totalInteresesRestantes = _sumaPorEstado(cuotas, 'interesMonto', 'Pendiente');
+    final totalCapital = _sumaPorEstado(cuotas, 'amortizacionMonto', 'Pagado') + _totalRetirosCapital(movimientos);
     final saldoActual = detalle['saldoActual'] as String? ?? _formatMoney(0);
 
     return pw.Container(
@@ -127,6 +138,10 @@ class PlanPagosPdfService {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
+          _filaTotal('TOTAL DE INTERESES PAGADOS', totalInteresesPagados),
+          pw.SizedBox(height: 6),
+          _filaTotal('INTERESES RESTANTES POR COBRAR', totalInteresesRestantes),
+          pw.SizedBox(height: 6),
           if (totalCapital > 0) ...[
             _filaTotal('TOTAL DE CAPITAL ABONADO', totalCapital),
             pw.SizedBox(height: 6),

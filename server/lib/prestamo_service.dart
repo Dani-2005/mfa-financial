@@ -326,6 +326,9 @@ class PrestamoService {
         'saldoInicio': _formatMoney(_toDouble(f['saldo_inicio_periodo'])),
         'tasa': '${_toDouble(f['tasa_aplicada']).toStringAsFixed(1)}%',
         'interes': _formatMoney(_toDouble(f['monto_interes_generado'])),
+        // Mismo valor que 'interes' pero sin formatear, para sumar el total
+        // de intereses pagados/restantes al final del PDF del plan de pagos.
+        'interesMonto': _toDouble(f['monto_interes_generado']),
         'amortizacion': _formatMoney(_toDouble(f['monto_capital_amortizado'])),
         // Mismo valor que 'amortizacion' pero sin formatear, para el total
         // de capital abonado al final del PDF del plan de pagos.
