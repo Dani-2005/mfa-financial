@@ -198,6 +198,12 @@ class PrestamoService {
         'tipoCalculo': tipoCalculo,
         'loanType': '$tipoTasa · $tipoCalculo',
         'totalAmount': _formatMoney(_toDouble(f['capital_inicial'])),
+        // Mismo valor que 'totalAmount' pero sin formatear, para el filtro
+        // por rango de monto de la pantalla de Préstamos.
+        'capitalInicialMonto': _toDouble(f['capital_inicial']),
+        // Mismo valor que 'startDate' (más abajo) pero en ISO 8601, para el
+        // filtro por rango de fecha de inicio.
+        'fechaInicioRaw': (f['fecha_inicio'] as DateTime).toIso8601String(),
         'remainingAmount': _formatMoney(_toDouble(f['balance_actual'])),
         'progressText': progressText,
         'progressValue': progressValue,

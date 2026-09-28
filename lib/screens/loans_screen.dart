@@ -37,10 +37,49 @@ class _LoansScreenState extends State<LoansScreen> {
   bool _isLoading = true;
   String? _loadError;
 
+  // ==========================================
+  // FILTROS AVANZADOS (ícono de controles al lado de la búsqueda)
+  // ==========================================
+  List<Map<String, dynamic>> _estadosFiltro = [];
+  bool _isLoadingEstadosFiltro = false;
+
+  String? _filtroEstadoNombre;
+  String? _filtroTipoTasa;
+  DateTime? _filtroFechaDesde;
+  DateTime? _filtroFechaHasta;
+  double? _filtroMontoDesde;
+  double? _filtroMontoHasta;
+
+  bool get _hayFiltrosActivos =>
+      _filtroEstadoNombre != null ||
+      _filtroTipoTasa != null ||
+      _filtroFechaDesde != null ||
+      _filtroFechaHasta != null ||
+      _filtroMontoDesde != null ||
+      _filtroMontoHasta != null;
+
   @override
   void initState() {
     super.initState();
     _loadLoans();
+    _loadEstadosFiltro();
+  }
+
+  Future<void> _loadEstadosFiltro() async {
+    setState(() => _isLoadingEstadosFiltro = true);
+    try {
+      final estados = await _prestamoService.fetchEstados();
+      if (!mounted) return;
+      setState(() {
+        _estadosFiltro = estados;
+        _isLoadingEstadosFiltro = false;
+      });
+    } catch (_) {
+      // El filtro por estado simplemente queda vacío si falla; no es
+      // crítico para ver el listado, así que no se muestra ningún error.
+      if (!mounted) return;
+      setState(() => _isLoadingEstadosFiltro = false);
+    }
   }
 
   @override
@@ -360,7 +399,8 @@ class _LoansScreenState extends State<LoansScreen> {
           query.isEmpty ||
           (loan['name'] as String).toLowerCase().contains(query) ||
           (loan['code'] as String).toLowerCase().contains(query) ||
-          ((loan['nombrePrestamo'] as String?) ?? '').toLowerCase().contains(query);
+          ((loan['nombrePrestamo'] as String?) ?? '').toLowerCase().contains(query) ||
+          ((loan['estadoNombre'] as String?) ?? '').toLowerCase().contains(query);
 
       final status = loan['status'] as String;
       bool matchesTab;
@@ -378,7 +418,35 @@ class _LoansScreenState extends State<LoansScreen> {
           matchesTab = status != 'PAGADO';
       }
 
-      return matchesSearch && matchesTab;
+      final matchesEstado = _filtroEstadoNombre == null || loan['estadoNombre'] == _filtroEstadoNombre;
+      final matchesTipoTasa = _filtroTipoTasa == null || loan['tipoTasa'] == _filtroTipoTasa;
+
+      var matchesFecha = true;
+      if (_filtroFechaDesde != null || _filtroFechaHasta != null) {
+        final fecha = DateTime.tryParse((loan['fechaInicioRaw'] as String?) ?? '');
+        if (fecha == null) {
+          matchesFecha = false;
+        } else {
+          if (_filtroFechaDesde != null && fecha.isBefore(_filtroFechaDesde!)) matchesFecha = false;
+          if (_filtroFechaHasta != null &&
+              fecha.isAfter(_filtroFechaHasta!.add(const Duration(hours: 23, minutes: 59, seconds: 59)))) {
+            matchesFecha = false;
+          }
+        }
+      }
+
+      var matchesMonto = true;
+      if (_filtroMontoDesde != null || _filtroMontoHasta != null) {
+        final monto = (loan['capitalInicialMonto'] as num?)?.toDouble();
+        if (monto == null) {
+          matchesMonto = false;
+        } else {
+          if (_filtroMontoDesde != null && monto < _filtroMontoDesde!) matchesMonto = false;
+          if (_filtroMontoHasta != null && monto > _filtroMontoHasta!) matchesMonto = false;
+        }
+      }
+
+      return matchesSearch && matchesTab && matchesEstado && matchesTipoTasa && matchesFecha && matchesMonto;
     }).toList();
 
     // Agrupados por estado (alfabético, "Sin estado" al final); dentro de
@@ -639,10 +707,29 @@ class _LoansScreenState extends State<LoansScreen> {
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
-          hintText: 'Buscar por cliente, código o nombre...',
+          hintText: 'Buscar por cliente, código, nombre o estado...',
           hintStyle: TextStyle(color: Colors.grey.shade700, fontSize: 12),
           prefixIcon: Icon(Icons.search, color: Colors.grey.shade500, size: 20),
-          suffixIcon: Icon(Icons.tune, color: Colors.grey.shade600, size: 18),
+          suffixIcon: IconButton(
+            onPressed: _showFiltrosDialog,
+            tooltip: 'Filtros avanzados',
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(Icons.tune, color: _hayFiltrosActivos ? Colors.black : Colors.grey.shade600, size: 18),
+                if (_hayFiltrosActivos)
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
@@ -657,6 +744,263 @@ class _LoansScreenState extends State<LoansScreen> {
         },
       ),
     );
+  }
+
+  /// Diálogo de filtros avanzados (Estado, Tipo de Tasa, rango de fecha de
+  /// inicio y rango de monto), abierto desde el ícono de controles de la
+  /// barra de búsqueda. Los cambios se editan en variables locales al
+  /// diálogo (vía [StatefulBuilder]) y solo se aplican a la lista real al
+  /// tocar "Aplicar Filtros" — así no se refiltra la lista de fondo con
+  /// cada toque mientras el usuario todavía está eligiendo.
+  Future<void> _showFiltrosDialog() async {
+    String tempEstado = _filtroEstadoNombre ?? 'TODOS';
+    String tempTipoTasa = _filtroTipoTasa ?? 'TODOS';
+    DateTime? tempFechaDesde = _filtroFechaDesde;
+    DateTime? tempFechaHasta = _filtroFechaHasta;
+    final montoDesdeCtrl = TextEditingController(
+      text: _filtroMontoDesde != null ? MoneyInputFormatter.format(_filtroMontoDesde!) : '',
+    );
+    final montoHastaCtrl = TextEditingController(
+      text: _filtroMontoHasta != null ? MoneyInputFormatter.format(_filtroMontoHasta!) : '',
+    );
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        final isDesktop = MediaQuery.sizeOf(dialogContext).width >= 800;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> pickFecha({required bool esDesde}) async {
+              final actual = esDesde ? tempFechaDesde : tempFechaHasta;
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: actual ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now(),
+              );
+              if (picked == null) return;
+              setDialogState(() {
+                if (esDesde) {
+                  tempFechaDesde = picked;
+                } else {
+                  tempFechaHasta = picked;
+                }
+              });
+            }
+
+            Widget fechaField(String label, DateTime? value, VoidCallback onTap) {
+              return InkWell(
+                onTap: onTap,
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: label,
+                    prefixIcon: const Icon(Icons.calendar_today_outlined, size: 18, color: Colors.black),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                  ),
+                  child: Text(
+                    value == null
+                        ? '(sin definir)'
+                        : '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}',
+                    style: TextStyle(fontSize: 13, color: value == null ? Colors.grey.shade600 : Colors.black87),
+                  ),
+                ),
+              );
+            }
+
+            Widget montoField(String label, TextEditingController controller) {
+              return TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [MoneyInputFormatter()],
+                decoration: InputDecoration(
+                  labelText: label,
+                  prefixIcon: const Icon(Icons.attach_money, size: 18, color: Colors.black),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                ),
+              );
+            }
+
+            final campoEstado = CustomDropdown<String>(
+              key: ValueKey('filtro_estado_${_estadosFiltro.length}'),
+              initialValue: tempEstado,
+              enabled: !_isLoadingEstadosFiltro,
+              decoration: InputDecoration(
+                labelText: 'Estado',
+                prefixIcon: const Icon(Icons.map_outlined, color: Colors.black),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              items: [
+                const CustomDropdownItem(value: 'TODOS', label: 'Todos los estados'),
+                ..._estadosFiltro.map((e) => CustomDropdownItem<String>(value: e['nombre'] as String, label: e['nombre'] as String)),
+              ],
+              onChanged: (val) => setDialogState(() => tempEstado = val ?? 'TODOS'),
+            );
+
+            final campoTipoTasa = CustomDropdown<String>(
+              initialValue: tempTipoTasa,
+              decoration: InputDecoration(
+                labelText: 'Tipo de Tasa',
+                prefixIcon: const Icon(Icons.percent, color: Colors.black),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              items: const [
+                CustomDropdownItem(value: 'TODOS', label: 'Todas'),
+                CustomDropdownItem(value: 'Fija', label: 'Fija'),
+                CustomDropdownItem(value: 'Variable', label: 'Variable'),
+              ],
+              onChanged: (val) => setDialogState(() => tempTipoTasa = val ?? 'TODOS'),
+            );
+
+            final campoFechas = isDesktop
+                ? Row(
+                    children: [
+                      Expanded(child: fechaField('Fecha inicio desde', tempFechaDesde, () => pickFecha(esDesde: true))),
+                      const SizedBox(width: 10),
+                      Expanded(child: fechaField('Fecha inicio hasta', tempFechaHasta, () => pickFecha(esDesde: false))),
+                    ],
+                  )
+                : Column(
+                    children: [
+                      fechaField('Fecha inicio desde', tempFechaDesde, () => pickFecha(esDesde: true)),
+                      const SizedBox(height: 12),
+                      fechaField('Fecha inicio hasta', tempFechaHasta, () => pickFecha(esDesde: false)),
+                    ],
+                  );
+
+            final campoMontos = isDesktop
+                ? Row(
+                    children: [
+                      Expanded(child: montoField('Monto desde', montoDesdeCtrl)),
+                      const SizedBox(width: 10),
+                      Expanded(child: montoField('Monto hasta', montoHastaCtrl)),
+                    ],
+                  )
+                : Column(
+                    children: [
+                      montoField('Monto desde', montoDesdeCtrl),
+                      const SizedBox(height: 12),
+                      montoField('Monto hasta', montoHastaCtrl),
+                    ],
+                  );
+
+            return Dialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              insetPadding: EdgeInsets.symmetric(horizontal: isDesktop ? 80 : 16, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Filtros Avanzados',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                            ),
+                            IconButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              icon: const Icon(Icons.close, color: Colors.black54),
+                              tooltip: 'Cerrar',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // En escritorio, Estado y Tipo de Tasa comparten fila
+                        // (hay espacio de sobra); en móvil van apilados para
+                        // no comprimirlos.
+                        isDesktop
+                            ? Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: campoEstado),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: campoTipoTasa),
+                                ],
+                              )
+                            : Column(
+                                children: [
+                                  campoEstado,
+                                  const SizedBox(height: 12),
+                                  campoTipoTasa,
+                                ],
+                              ),
+                        const SizedBox(height: 12),
+                        campoFechas,
+                        const SizedBox(height: 12),
+                        campoMontos,
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _filtroEstadoNombre = null;
+                                  _filtroTipoTasa = null;
+                                  _filtroFechaDesde = null;
+                                  _filtroFechaHasta = null;
+                                  _filtroMontoDesde = null;
+                                  _filtroMontoHasta = null;
+                                  _currentPage = 1;
+                                });
+                                Navigator.pop(dialogContext);
+                              },
+                              child: Text('Limpiar filtros', style: TextStyle(color: Colors.grey.shade800)),
+                            ),
+                            const Spacer(),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.black),
+                              onPressed: () {
+                                setState(() {
+                                  _filtroEstadoNombre = tempEstado == 'TODOS' ? null : tempEstado;
+                                  _filtroTipoTasa = tempTipoTasa == 'TODOS' ? null : tempTipoTasa;
+                                  _filtroFechaDesde = tempFechaDesde;
+                                  _filtroFechaHasta = tempFechaHasta;
+                                  _filtroMontoDesde = MoneyInputFormatter.parse(montoDesdeCtrl.text);
+                                  _filtroMontoHasta = MoneyInputFormatter.parse(montoHastaCtrl.text);
+                                  _currentPage = 1;
+                                });
+                                Navigator.pop(dialogContext);
+                              },
+                              child: const Text('Aplicar Filtros', style: TextStyle(color: Colors.white)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    montoDesdeCtrl.dispose();
+    montoHastaCtrl.dispose();
   }
 
   Widget _buildFilterTabs() {
