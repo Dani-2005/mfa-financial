@@ -62,6 +62,10 @@ class ReciboPdfService {
 
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.end,
+      // Alineadas por abajo: la columna de las huellas es más alta (por el
+      // padding de la huella izquierda), y centradas quedaban la línea y el
+      // texto de las huellas más abajo que los de la firma.
+      crossAxisAlignment: pw.CrossAxisAlignment.end,
       children: [
         pw.Column(
           children: [
