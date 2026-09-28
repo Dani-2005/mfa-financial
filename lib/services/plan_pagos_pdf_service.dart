@@ -69,7 +69,7 @@ class PlanPagosPdfService {
             ),
           ],
           pw.SizedBox(height: 14),
-          _buildTotalesPagados(cuotas, movimientos),
+          _buildTotalesPagados(detalle, cuotas, movimientos),
         ],
       ),
     );
@@ -101,16 +101,19 @@ class PlanPagosPdfService {
         .fold<double>(0, (suma, m) => suma + ((m['montoNumerico'] as num?)?.toDouble() ?? 0));
   }
 
-  /// Recuadro final con el total de intereses pagados y, si el préstamo ya
-  /// tuvo abonos a capital, el total de capital abonado justo debajo (no se
-  /// muestra si todavía es $0, p. ej. un préstamo recién iniciado o uno en
-  /// fase de capitalización donde por ahora solo se cobra interés).
+  /// Recuadro final con el total de intereses pagados, el total de capital
+  /// abonado (si el préstamo ya tuvo abonos — no se muestra si todavía es
+  /// $0, p. ej. un préstamo recién iniciado o uno en fase de capitalización
+  /// donde por ahora solo se cobra interés) y, siempre, el capital restante
+  /// actual del préstamo (aunque sea $0, que significa que ya está pagado).
   static pw.Widget _buildTotalesPagados(
+    Map<String, dynamic> detalle,
     List<Map<String, dynamic>> cuotas,
     List<Map<String, dynamic>> movimientos,
   ) {
     final totalIntereses = _sumaPagada(cuotas, 'interesMonto');
     final totalCapital = _sumaPagada(cuotas, 'amortizacionMonto') + _totalRetirosCapital(movimientos);
+    final saldoActual = detalle['saldoActual'] as String? ?? _formatMoney(0);
 
     return pw.Container(
       width: double.infinity,
@@ -127,12 +130,18 @@ class PlanPagosPdfService {
             pw.SizedBox(height: 6),
             _filaTotal('TOTAL DE CAPITAL ABONADO', totalCapital),
           ],
+          pw.SizedBox(height: 6),
+          _filaTotalTexto('CAPITAL RESTANTE', saldoActual),
         ],
       ),
     );
   }
 
   static pw.Widget _filaTotal(String etiqueta, double total) {
+    return _filaTotalTexto(etiqueta, _formatMoney(total));
+  }
+
+  static pw.Widget _filaTotalTexto(String etiqueta, String montoTexto) {
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
       children: [
@@ -141,7 +150,7 @@ class PlanPagosPdfService {
           style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _colorEncabezado),
         ),
         pw.Text(
-          _formatMoney(total),
+          montoTexto,
           style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
         ),
       ],

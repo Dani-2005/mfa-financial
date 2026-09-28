@@ -220,6 +220,7 @@ class PrestamoService {
   Future<Map<String, dynamic>> fetchDetalle(int prestamoId) async {
     final result = await DatabaseService.instance.query(
       'SELECT p.codigo_referencia, p.nombre_prestamo, p.tipo_tasa, p.tipo_calculo, p.capital_inicial, '
+      'p.balance_actual, '
       'p.tasa_interes_mensual, p.mes_cambio_tasa, p.nueva_tasa_interes, '
       'p.mes_cambio_capitalizacion, p.frecuencia_pago, p.fecha_inicio, p.numero_cuotas, '
       'p.estado, p.activo, c.nombre_cliente, c.documento_identidad '
@@ -240,6 +241,10 @@ class PrestamoService {
       'tipoTasa': f['tipo_tasa'],
       'tipoCalculo': f['tipo_calculo'],
       'capitalInicial': _formatMoney(_toDouble(f['capital_inicial'])),
+      // Saldo de capital pendiente ahora mismo (el mismo que se muestra en
+      // el resto de la app), para el "Capital Restante" al final del PDF
+      // del Plan de Pagos.
+      'saldoActual': _formatMoney(_toDouble(f['balance_actual'])),
       'tasaInteresMensual': '${_toDouble(f['tasa_interes_mensual']).toStringAsFixed(1)}%',
       'mesCambioTasa': f['mes_cambio_tasa'],
       'nuevaTasaInteres': nuevaTasa == null ? null : '${_toDouble(nuevaTasa).toStringAsFixed(1)}%',
