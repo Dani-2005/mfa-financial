@@ -114,6 +114,8 @@ class PrestamoService {
     required String frecuenciaPago,
     required DateTime fechaInicio,
     required int numeroCuotas,
+    DateTime? fechaInicioLetra,
+    DateTime? fechaVencimientoLetra,
     List<MovimientoCapitalPlanificado> movimientosPlanificados = const [],
   }) async {
     final response = await ApiClient.instance.post(
@@ -134,6 +136,8 @@ class PrestamoService {
         'frecuenciaPago': frecuenciaPago,
         'fechaInicio': fechaInicio.toIso8601String(),
         'numeroCuotas': numeroCuotas,
+        'fechaInicioLetra': fechaInicioLetra?.toIso8601String(),
+        'fechaVencimientoLetra': fechaVencimientoLetra?.toIso8601String(),
         'movimientosPlanificados': movimientosPlanificados
             .map((m) => {
                   'periodoDesde': m.periodoDesde,
@@ -183,6 +187,8 @@ class PrestamoService {
     required String frecuenciaPago,
     required DateTime fechaInicio,
     required int numeroCuotas,
+    DateTime? fechaInicioLetra,
+    DateTime? fechaVencimientoLetra,
   }) async {
     final response = await ApiClient.instance.put(
       '/api/prestamos/$prestamoId',
@@ -201,6 +207,8 @@ class PrestamoService {
         'frecuenciaPago': frecuenciaPago,
         'fechaInicio': fechaInicio.toIso8601String(),
         'numeroCuotas': numeroCuotas,
+        'fechaInicioLetra': fechaInicioLetra?.toIso8601String(),
+        'fechaVencimientoLetra': fechaVencimientoLetra?.toIso8601String(),
       },
     );
     if (!response.ok) _throwError(response, 'No se pudo actualizar el préstamo.');

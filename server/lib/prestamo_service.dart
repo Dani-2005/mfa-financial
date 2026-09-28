@@ -119,7 +119,7 @@ class PrestamoService {
       'SELECT p.prestamo_id, p.codigo_referencia, p.nombre_prestamo, p.capital_inicial, p.balance_actual, '
       'p.tasa_interes_mensual, p.tipo_tasa, p.tipo_calculo, p.frecuencia_pago, p.fecha_inicio, '
       'p.numero_cuotas, p.mes_cambio_capitalizacion, p.estado, p.activo, c.nombre_cliente, c.tipo_cliente, '
-      'p.estado_id, e.nombre AS estado_nombre, '
+      'p.estado_id, e.nombre AS estado_nombre, p.fecha_vencimiento_letra, '
       "(SELECT COUNT(*) FROM cuotas cu WHERE cu.prestamo_id = p.prestamo_id AND cu.interes_capitalizado = FALSE) "
       'AS cuotas_cobrables, '
       "(SELECT COUNT(*) FROM cuotas cu WHERE cu.prestamo_id = p.prestamo_id AND cu.interes_capitalizado = FALSE "
@@ -158,6 +158,7 @@ class PrestamoService {
       final tipoCalculo = f['tipo_calculo'] as String;
       final numeroCuotas = f['numero_cuotas'] as int;
       final mesCambioCapitalizacion = f['mes_cambio_capitalizacion'] as int?;
+      final vencimientoLetra = f['fecha_vencimiento_letra'] as DateTime?;
 
       // Si hay cuotas que capitalizan, se indica el rango exacto (siempre
       // arranca en la cuota 1): hasta la cuota anterior a la transición a
@@ -209,6 +210,10 @@ class PrestamoService {
         'progressValue': progressValue,
         'status': status,
         'dueDate': _formatDueDate(proximaFecha, hoy),
+        // Vencimiento de la letra de cambio del préstamo (null si no se
+        // cargó): la tarjeta muestra "La letra vence/venció el DD/MM/AAAA".
+        'letraVence': vencimientoLetra == null ? null : _formatDateDisplay(vencimientoLetra),
+        'letraVencida': vencimientoLetra != null && vencimientoLetra.isBefore(hoy),
         'interestRate': '${_toDouble(f['tasa_interes_mensual']).toStringAsFixed(1)}%',
         'startDate': _formatDateDisplay(f['fecha_inicio'] as DateTime),
         'initials': _initials(nombreCliente),
@@ -295,7 +300,7 @@ class PrestamoService {
     final diff = fecha.difference(hoy).inDays;
     final fechaCorta = '${fecha.day.toString().padLeft(2, '0')} ${_mesesAbrev[fecha.month - 1]}';
 
-    if (diff < 0) return 'Vence hace ${-diff} día${-diff == 1 ? '' : 's'}';
+    if (diff < 0) return 'Venció hace ${-diff} día${-diff == 1 ? '' : 's'}';
     if (diff == 0) return 'Vence hoy';
     if (diff <= 7) return 'Vence en $diff día${diff == 1 ? '' : 's'} ($fechaCorta)';
     return 'Vence: $fechaCorta ${fecha.year}';
@@ -411,11 +416,14 @@ class PrestamoService {
     required String frecuenciaPago,
     required DateTime fechaInicio,
     required int numeroCuotas,
+    DateTime? fechaInicioLetra,
+    DateTime? fechaVencimientoLetra,
     List<MovimientoCapitalPlanificado> movimientosPlanificados = const [],
   }) async {
     if (tipoTasa != 'Fija' && tipoTasa != 'Variable') {
       throw ArgumentError.value(tipoTasa, 'tipoTasa', "Debe ser 'Fija' o 'Variable'");
     }
+    _validarFechasLetra(fechaInicioLetra, fechaVencimientoLetra);
     if (tipoCalculo != 'Simple' && tipoCalculo != 'Compuesto') {
       throw ArgumentError.value(tipoCalculo, 'tipoCalculo', "Debe ser 'Simple' o 'Compuesto'");
     }
@@ -451,9 +459,9 @@ class PrestamoService {
       'INSERT INTO prestamos '
       '(codigo_referencia, nombre_prestamo, cliente_id, estado_id, tipo_tasa, tipo_calculo, capital_inicial, balance_actual, '
       'tasa_interes_mensual, mes_cambio_tasa, nueva_tasa_interes, mes_cambio_capitalizacion, '
-      'frecuencia_pago, fecha_inicio, numero_cuotas, estado) '
+      'frecuencia_pago, fecha_inicio, numero_cuotas, estado, fecha_inicio_letra, fecha_vencimiento_letra) '
       'VALUES (:codigo, :nombre, :clienteId, :estadoId, :tipoTasa, :tipoCalculo, :capital, :capital, :tasa, :mesCambio, :nuevaTasa, '
-      ':mesCambioCap, :frecuencia, :fechaInicio, :numeroCuotas, :estado)',
+      ':mesCambioCap, :frecuencia, :fechaInicio, :numeroCuotas, :estado, :inicioLetra, :vencimientoLetra)',
       {
         'codigo': codigoReferencia,
         'nombre': (nombrePrestamo == null || nombrePrestamo.trim().isEmpty) ? null : nombrePrestamo.trim(),
@@ -470,6 +478,8 @@ class PrestamoService {
         'fechaInicio': _formatDate(fechaInicio),
         'numeroCuotas': numeroCuotas,
         'estado': esOperacionPorFases ? 'Acumulacion' : 'Activo',
+        'inicioLetra': fechaInicioLetra == null ? null : _formatDate(fechaInicioLetra),
+        'vencimientoLetra': fechaVencimientoLetra == null ? null : _formatDate(fechaVencimientoLetra),
       },
     );
 
@@ -542,6 +552,8 @@ class PrestamoService {
         'frecuencia_pago': frecuenciaPago,
         'fecha_inicio': _formatDate(fechaInicio),
         'numero_cuotas': numeroCuotas,
+        'fecha_inicio_letra': fechaInicioLetra == null ? null : _formatDate(fechaInicioLetra),
+        'fecha_vencimiento_letra': fechaVencimientoLetra == null ? null : _formatDate(fechaVencimientoLetra),
         'movimientos_planificados': movimientosPlanificados
             .map((m) => {
                   'periodo_desde': m.periodoDesde,
@@ -551,6 +563,17 @@ class PrestamoService {
             .toList(),
       },
     );
+  }
+
+  /// Las fechas de la letra de cambio son opcionales, pero van juntas: o
+  /// vienen las dos o ninguna, y el vencimiento no puede ser antes del inicio.
+  void _validarFechasLetra(DateTime? inicio, DateTime? vencimiento) {
+    if ((inicio == null) != (vencimiento == null)) {
+      throw ArgumentError('Indica tanto el inicio como el vencimiento de la letra, o ninguno de los dos.');
+    }
+    if (inicio != null && vencimiento!.isBefore(inicio)) {
+      throw ArgumentError('El vencimiento de la letra no puede ser anterior a su fecha de inicio.');
+    }
   }
 
   String _formatDate(DateTime date) {
@@ -569,7 +592,7 @@ class PrestamoService {
     final result = await DatabaseService.instance.query(
       'SELECT codigo_referencia, nombre_prestamo, cliente_id, estado_id, tipo_tasa, tipo_calculo, capital_inicial, '
       'tasa_interes_mensual, mes_cambio_tasa, nueva_tasa_interes, mes_cambio_capitalizacion, '
-      'frecuencia_pago, fecha_inicio, numero_cuotas, estado, activo '
+      'frecuencia_pago, fecha_inicio, numero_cuotas, estado, activo, fecha_inicio_letra, fecha_vencimiento_letra '
       'FROM prestamos WHERE prestamo_id = :id',
       {'id': prestamoId},
     );
@@ -606,6 +629,9 @@ class PrestamoService {
       'frecuenciaPago': f['frecuencia_pago'],
       'fechaInicio': _formatDate(f['fecha_inicio'] as DateTime),
       'numeroCuotas': f['numero_cuotas'],
+      'fechaInicioLetra': f['fecha_inicio_letra'] == null ? null : _formatDate(f['fecha_inicio_letra'] as DateTime),
+      'fechaVencimientoLetra':
+          f['fecha_vencimiento_letra'] == null ? null : _formatDate(f['fecha_vencimiento_letra'] as DateTime),
       'tieneActividad': tieneActividad,
     };
   }
@@ -638,10 +664,13 @@ class PrestamoService {
     required String frecuenciaPago,
     required DateTime fechaInicio,
     required int numeroCuotas,
+    DateTime? fechaInicioLetra,
+    DateTime? fechaVencimientoLetra,
   }) async {
     if (tipoTasa != 'Fija' && tipoTasa != 'Variable') {
       throw ArgumentError.value(tipoTasa, 'tipoTasa', "Debe ser 'Fija' o 'Variable'");
     }
+    _validarFechasLetra(fechaInicioLetra, fechaVencimientoLetra);
     if (tipoCalculo != 'Simple' && tipoCalculo != 'Compuesto') {
       throw ArgumentError.value(tipoCalculo, 'tipoCalculo', "Debe ser 'Simple' o 'Compuesto'");
     }
@@ -749,7 +778,8 @@ class PrestamoService {
       'tipo_calculo = :tipoCalculo, capital_inicial = :capital, tasa_interes_mensual = :tasa, '
       'mes_cambio_tasa = :mesCambio, nueva_tasa_interes = :nuevaTasa, mes_cambio_capitalizacion = :mesCambioCap, '
       'frecuencia_pago = :frecuencia, fecha_inicio = :fechaInicio, numero_cuotas = :numeroCuotas, '
-      'estado = :estado WHERE prestamo_id = :id',
+      'estado = :estado, fecha_inicio_letra = :inicioLetra, fecha_vencimiento_letra = :vencimientoLetra '
+      'WHERE prestamo_id = :id',
       {
         'nombre': (nombrePrestamo == null || nombrePrestamo.trim().isEmpty) ? null : nombrePrestamo.trim(),
         'clienteId': clienteId,
@@ -765,6 +795,8 @@ class PrestamoService {
         'fechaInicio': _formatDate(fechaInicio),
         'numeroCuotas': numeroCuotas,
         'estado': esOperacionPorFases ? 'Acumulacion' : 'Activo',
+        'inicioLetra': fechaInicioLetra == null ? null : _formatDate(fechaInicioLetra),
+        'vencimientoLetra': fechaVencimientoLetra == null ? null : _formatDate(fechaVencimientoLetra),
         'id': prestamoId,
       },
     );
@@ -850,6 +882,8 @@ class PrestamoService {
         'frecuencia_pago': frecuenciaPago,
         'fecha_inicio': _formatDate(fechaInicio),
         'numero_cuotas': numeroCuotas,
+        'fecha_inicio_letra': fechaInicioLetra == null ? null : _formatDate(fechaInicioLetra),
+        'fecha_vencimiento_letra': fechaVencimientoLetra == null ? null : _formatDate(fechaVencimientoLetra),
       },
     );
   }

@@ -1092,6 +1092,8 @@ class _LoansScreenState extends State<LoansScreen> {
     final statusColor = _statusColor(status);
     final statusBg = _statusBg(status);
     final dueDate = loan['dueDate'] as String;
+    final letraVence = loan['letraVence'] as String?;
+    final letraVencida = loan['letraVencida'] == true;
     final initials = loan['initials'] as String;
     final isCompany = loan['isCompany'] as bool;
     final isUrgent = loan['isUrgent'] as bool;
@@ -1333,27 +1335,62 @@ class _LoansScreenState extends State<LoansScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      isOverdue
-                          ? Icons.error_outline
-                          : Icons.calendar_today_outlined,
-                      size: 14,
-                      color: isOverdue ? Colors.red.shade700 : Colors.grey,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      dueDate,
-                      style: TextStyle(
-                        color: isOverdue
-                            ? Colors.red.shade700
-                            : Colors.grey.shade800,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                // Wrap: en pantallas angostas el aviso de la letra baja a
+                // la línea siguiente en vez de desbordarse.
+                Expanded(
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 6,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isOverdue
+                                ? Icons.error_outline
+                                : Icons.calendar_today_outlined,
+                            size: 14,
+                            color: isOverdue ? Colors.red.shade700 : Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            dueDate,
+                            style: TextStyle(
+                              color: isOverdue
+                                  ? Colors.red.shade700
+                                  : Colors.grey.shade800,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      if (letraVence != null)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.event_note_outlined,
+                              size: 14,
+                              color: letraVencida ? Colors.red.shade700 : Colors.grey,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              letraVencida
+                                  ? 'La letra venció el $letraVence'
+                                  : 'La letra vence el $letraVence',
+                              style: TextStyle(
+                                color: letraVencida
+                                    ? Colors.red.shade700
+                                    : Colors.grey.shade800,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
                 const Icon(Icons.chevron_right, color: Colors.grey, size: 18),
               ],
@@ -2729,6 +2766,11 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
   String _selectedFrequency = 'Mensual';
   DateTime _startDate = DateTime.now();
 
+  // Letra de cambio del préstamo: opcional, pero si se indica una fecha
+  // hay que indicar las dos.
+  DateTime? _inicioLetra;
+  DateTime? _vencimientoLetra;
+
   final TextEditingController _mesCambioController = TextEditingController();
   String _selectedTipoTasa = 'Fija';
   String _selectedTipoCalculo = 'Simple';
@@ -2789,6 +2831,8 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
     _numeroCuotasController.text = '${e['numeroCuotas']}';
     _selectedFrequency = e['frecuenciaPago'] as String;
     _startDate = DateTime.parse(e['fechaInicio'] as String);
+    _inicioLetra = DateTime.tryParse((e['fechaInicioLetra'] as String?) ?? '');
+    _vencimientoLetra = DateTime.tryParse((e['fechaVencimientoLetra'] as String?) ?? '');
     if (e['mesCambioTasa'] != null) {
       _mesCambioController.text = '${e['mesCambioTasa']}';
     }
@@ -2892,8 +2936,67 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
     }
   }
 
+  /// Selector de fecha para la letra de cambio. Devuelve null si se cancela.
+  Future<DateTime?> _pickFechaLetra(BuildContext context, DateTime? actual) {
+    return showDatePicker(
+      context: context,
+      initialDate: actual ?? _startDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2040),
+    );
+  }
+
+  static String _fechaTexto(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  /// Campo de fecha de la letra: muestra la fecha elegida o "Sin fecha", y
+  /// una X para borrarla (la letra es opcional).
+  Widget _buildFechaLetraField({
+    required String label,
+    required DateTime? valor,
+    required ValueChanged<DateTime?> onChanged,
+  }) {
+    return InkWell(
+      onTap: () async {
+        final picked = await _pickFechaLetra(context, valor);
+        if (picked != null) setState(() => onChanged(picked));
+      },
+      child: InputDecorator(
+        decoration: _inputDecoration(label, Icons.event_note_outlined).copyWith(
+          suffixIcon: valor == null
+              ? null
+              : IconButton(
+                  tooltip: 'Quitar fecha',
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => setState(() => onChanged(null)),
+                ),
+        ),
+        child: Text(
+          valor == null ? 'Sin fecha' : _fechaTexto(valor),
+          style: TextStyle(
+            fontSize: 13,
+            color: valor == null ? Colors.grey.shade600 : Colors.black87,
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _saveLoan() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if ((_inicioLetra == null) != (_vencimientoLetra == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Indica el inicio y el vencimiento de la letra, o deja ambos vacíos')),
+      );
+      return;
+    }
+    if (_inicioLetra != null && _vencimientoLetra!.isBefore(_inicioLetra!)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El vencimiento de la letra no puede ser anterior a su inicio')),
+      );
+      return;
+    }
 
     if (_selectedClienteId == null || _selectedEstadoId == null || _codigoGenerado == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2927,6 +3030,8 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
           frecuenciaPago: _selectedFrequency,
           fechaInicio: _startDate,
           numeroCuotas: int.parse(_numeroCuotasController.text),
+          fechaInicioLetra: _inicioLetra,
+          fechaVencimientoLetra: _vencimientoLetra,
         );
 
         if (!mounted) return;
@@ -2966,6 +3071,8 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
         frecuenciaPago: _selectedFrequency,
         fechaInicio: _startDate,
         numeroCuotas: int.parse(_numeroCuotasController.text),
+        fechaInicioLetra: _inicioLetra,
+        fechaVencimientoLetra: _vencimientoLetra,
         movimientosPlanificados: movimientosPlanificados,
       );
 
@@ -3343,6 +3450,19 @@ class _NewLoanFormScreenState extends State<NewLoanFormScreen> {
                         ),
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  _buildFechaLetraField(
+                    label: 'Inicio de la Letra (opcional)',
+                    valor: _inicioLetra,
+                    onChanged: (v) => _inicioLetra = v,
+                  ),
+                  const SizedBox(height: 14),
+                  _buildFechaLetraField(
+                    label: 'Vencimiento de la Letra (opcional)',
+                    valor: _vencimientoLetra,
+                    onChanged: (v) => _vencimientoLetra = v,
                   ),
                   const SizedBox(height: 16),
 

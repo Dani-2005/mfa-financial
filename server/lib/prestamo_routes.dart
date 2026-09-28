@@ -9,6 +9,8 @@ import 'prestamo_service.dart';
 
 final _prestamoService = PrestamoService();
 
+DateTime? _fechaOpcional(dynamic valor) => valor == null ? null : DateTime.parse(valor as String);
+
 Router buildPrestamoRouter() {
   final router = Router();
 
@@ -62,6 +64,8 @@ Router buildPrestamoRouter() {
         frecuenciaPago: body['frecuenciaPago'] as String,
         fechaInicio: DateTime.parse(body['fechaInicio'] as String),
         numeroCuotas: body['numeroCuotas'] as int,
+        fechaInicioLetra: _fechaOpcional(body['fechaInicioLetra']),
+        fechaVencimientoLetra: _fechaOpcional(body['fechaVencimientoLetra']),
         movimientosPlanificados: movimientos,
       );
       return jsonResponse({'ok': true});
@@ -109,6 +113,8 @@ Router buildPrestamoRouter() {
         frecuenciaPago: body['frecuenciaPago'] as String,
         fechaInicio: DateTime.parse(body['fechaInicio'] as String),
         numeroCuotas: body['numeroCuotas'] as int,
+        fechaInicioLetra: _fechaOpcional(body['fechaInicioLetra']),
+        fechaVencimientoLetra: _fechaOpcional(body['fechaVencimientoLetra']),
       );
       return jsonResponse({'ok': true});
     } on ArgumentError catch (e) {
