@@ -131,7 +131,9 @@ class LoanCalculator {
 
       cuotas.add({
         'numero_periodo': periodo,
-        'fecha_vencimiento': _sumarPeriodo(fechaInicio, frecuenciaPago, periodo),
+        // Interés por adelantado: la cuota N se cobra al EMPEZAR su periodo,
+        // así que la cuota 1 vence el mismo día de inicio del préstamo.
+        'fecha_vencimiento': _sumarPeriodo(fechaInicio, frecuenciaPago, periodo - 1),
         'saldo_inicio_periodo': saldoInicio,
         'tasa_aplicada': tasaVigente,
         'monto_interes_generado': interes,
@@ -209,7 +211,9 @@ class LoanCalculator {
 
       cuotas.add({
         'numero_periodo': periodo,
-        'fecha_vencimiento': _sumarPeriodo(fechaInicio, frecuenciaPago, periodo),
+        // Interés por adelantado: la cuota N se cobra al EMPEZAR su periodo,
+        // así que la cuota 1 vence el mismo día de inicio del préstamo.
+        'fecha_vencimiento': _sumarPeriodo(fechaInicio, frecuenciaPago, periodo - 1),
         'saldo_inicio_periodo': saldoInicioPeriodo,
         'tasa_aplicada': tasaVigente,
         'monto_interes_generado': interes,
@@ -224,9 +228,11 @@ class LoanCalculator {
     return cuotas;
   }
 
-  /// Fecha de vencimiento del periodo [n] (1-indexado) según [frecuencia],
-  /// contada desde [inicio]. Se expone para poder fechar los movimientos
-  /// de capital planificados de forma consistente con el cronograma.
+  /// Fecha que está [n] periodos después de [inicio] según [frecuencia].
+  /// Como el interés se cobra por adelantado, `fechaDePeriodo(inicio, f, n)`
+  /// es a la vez el inicio del periodo n+1 y el vencimiento de la cuota
+  /// n+1. Se expone para fechar los movimientos de capital planificados de
+  /// forma consistente con el cronograma.
   static DateTime fechaDePeriodo(DateTime inicio, String frecuencia, int n) {
     return _sumarPeriodo(inicio, frecuencia, n);
   }
