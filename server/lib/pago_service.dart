@@ -87,9 +87,9 @@ class PagoService {
   static String _codigoCapitalizacion(String codigoPrestamo, int periodo) =>
       '$_prefijoCapitalizacion$codigoPrestamo-${periodo.toString().padLeft(2, '0')}';
 
-  /// Una entrada del Historial de Pagos por cada cuota que capitalizó
-  /// intereses y cuya fecha ya llegó (las futuras aparecen solas cuando les
-  /// toque, igual que un pago real).
+  /// Una entrada del Historial de Pagos por cada cuota que capitaliza
+  /// intereses, incluidas las de meses que todavía no llegan (la
+  /// capitalización está programada desde que se crea el préstamo).
   Future<List<Map<String, dynamic>>> _fetchCapitalizaciones() async {
     final result = await DatabaseService.instance.query(
       'SELECT cu.numero_periodo, cu.fecha_vencimiento, cu.monto_interes_generado, '
@@ -97,7 +97,7 @@ class PagoService {
       'FROM cuotas cu '
       'JOIN prestamos p ON p.prestamo_id = cu.prestamo_id '
       'JOIN clientes cl ON cl.cliente_id = p.cliente_id '
-      'WHERE cu.interes_capitalizado = TRUE AND cu.fecha_vencimiento <= CURDATE()',
+      'WHERE cu.interes_capitalizado = TRUE',
     );
 
     return result.rows.map((row) {
