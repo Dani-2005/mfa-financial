@@ -33,7 +33,10 @@ class ReciboPdfService {
               _buildTablaCliente(detalle),
               pw.SizedBox(height: 14),
               _buildTablaDetalle(lineas),
-              _buildBalancePendiente(detalle['balance_pendiente'] as double),
+              _buildBalancePendiente(
+                detalle['balance_pendiente'] as double,
+                etiqueta: (detalle['etiqueta_balance'] as String?) ?? 'BALANCE PENDIENTE',
+              ),
               pw.SizedBox(height: 24),
               sello,
             ],
@@ -114,7 +117,12 @@ class ReciboPdfService {
           children: [
             pw.Text(detalle['fecha_emision'] as String, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 4),
-            pw.Text('RECIBO ${detalle['codigo_recibo']}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            // Los comprobantes de capitalización traen su propio título; los
+            // recibos de pago usan "RECIBO".
+            pw.Text(
+              '${(detalle['titulo'] as String?) ?? 'RECIBO'} ${detalle['codigo_recibo']}',
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+            ),
             if ((detalle['prestamo_nombre'] as String?)?.isNotEmpty == true) ...[
               pw.SizedBox(height: 3),
               pw.Text(
@@ -184,7 +192,7 @@ class ReciboPdfService {
     );
   }
 
-  static pw.Widget _buildBalancePendiente(double balance) {
+  static pw.Widget _buildBalancePendiente(double balance, {required String etiqueta}) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
       columnWidths: const {0: pw.FlexColumnWidth(7), 1: pw.FlexColumnWidth(1.6)},
@@ -196,7 +204,7 @@ class ReciboPdfService {
               padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
               decoration: pw.BoxDecoration(color: _colorEncabezado),
               child: pw.Text(
-                'BALANCE PENDIENTE',
+                etiqueta,
                 style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, fontStyle: pw.FontStyle.italic, color: PdfColors.white),
               ),
             ),

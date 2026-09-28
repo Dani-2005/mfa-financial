@@ -21,7 +21,7 @@ class PagoService {
       'ORDER BY r.fecha_emision DESC, r.reciboPago_id DESC',
     );
 
-    return result.rows.map((row) {
+    final recibos = result.rows.map((row) {
       final f = row.typedAssoc();
       final fecha = f['fecha_emision'] as DateTime;
       final tipoMovimiento = f['tipo_movimiento'] as String;
@@ -58,8 +58,133 @@ class PagoService {
         'activo': f['activo'],
         'mes': fecha.month,
         'anio': fecha.year,
+        '_fecha': fecha,
       };
     }).toList();
+
+    // Las capitalizaciones se intercalan con los pagos por fecha (más
+    // recientes primero). A igual fecha, los pagos reales van antes.
+    final todos = [...recibos, ...await _fetchCapitalizaciones()];
+    final orden = {for (var i = 0; i < todos.length; i++) todos[i]: i};
+    todos.sort((a, b) {
+      final cmp = (b['_fecha'] as DateTime).compareTo(a['_fecha'] as DateTime);
+      return cmp != 0 ? cmp : orden[a]!.compareTo(orden[b]!);
+    });
+    for (final p in todos) {
+      p.remove('_fecha');
+    }
+    return todos;
+  }
+
+  /// Prefijo de los comprobantes de capitalización. No son recibos guardados
+  /// en `recibos_pagos` (el cliente no paga nada: el interés se suma al
+  /// saldo), sino que se generan a partir de las cuotas con
+  /// `interes_capitalizado = TRUE`. Así no inflan los totales cobrados del
+  /// Dashboard, gráficas y reportes, y si el préstamo se edita o recibe un
+  /// abono, el comprobante refleja siempre los montos vigentes.
+  static const _prefijoCapitalizacion = 'CAP-';
+
+  static String _codigoCapitalizacion(String codigoPrestamo, int periodo) =>
+      '$_prefijoCapitalizacion$codigoPrestamo-${periodo.toString().padLeft(2, '0')}';
+
+  /// Una entrada del Historial de Pagos por cada cuota que capitalizó
+  /// intereses y cuya fecha ya llegó (las futuras aparecen solas cuando les
+  /// toque, igual que un pago real).
+  Future<List<Map<String, dynamic>>> _fetchCapitalizaciones() async {
+    final result = await DatabaseService.instance.query(
+      'SELECT cu.numero_periodo, cu.fecha_vencimiento, cu.monto_interes_generado, '
+      'p.numero_cuotas, p.codigo_referencia, p.nombre_prestamo, cl.cliente_id, cl.nombre_cliente '
+      'FROM cuotas cu '
+      'JOIN prestamos p ON p.prestamo_id = cu.prestamo_id '
+      'JOIN clientes cl ON cl.cliente_id = p.cliente_id '
+      'WHERE cu.interes_capitalizado = TRUE AND cu.fecha_vencimiento <= CURDATE()',
+    );
+
+    return result.rows.map((row) {
+      final f = row.typedAssoc();
+      final fecha = f['fecha_vencimiento'] as DateTime;
+      final periodo = f['numero_periodo'] as int;
+      final codigoPrestamo = f['codigo_referencia'] as String;
+      return <String, dynamic>{
+        'codigo_recibo': _codigoCapitalizacion(codigoPrestamo, periodo),
+        'cliente': f['nombre_cliente'],
+        'cliente_id': f['cliente_id'],
+        'prestamo_codigo': codigoPrestamo,
+        'prestamo_nombre': f['nombre_prestamo'],
+        'cuota': 'Capitalización (Cuota $periodo de ${f['numero_cuotas']})',
+        'tipoMovimiento': 'Capitalizacion',
+        'fecha_emision': _formatDateDisplay(fecha),
+        'monto': _formatMoney(_toDouble(f['monto_interes_generado'])),
+        'concepto': 'Intereses de la cuota $periodo de ${f['numero_cuotas']} sumados al saldo del préstamo '
+            '#$codigoPrestamo.',
+        'metodo': 'Capitalización automática',
+        'referencia': 'N/A',
+        'activo': true,
+        'mes': fecha.month,
+        'anio': fecha.year,
+        '_fecha': fecha,
+      };
+    }).toList();
+  }
+
+  /// Detalle para el PDF de un comprobante de capitalización
+  /// (`CAP-<préstamo>-<cuota>`): saldo inicial del periodo, interés
+  /// capitalizado y saldo final.
+  Future<Map<String, dynamic>> _fetchCapitalizacionDetalle(String codigo) async {
+    final partes = codigo.substring(_prefijoCapitalizacion.length).split('-');
+    final periodo = partes.length == 2 ? int.tryParse(partes[1]) : null;
+    if (periodo == null) {
+      throw ArgumentError.value(codigo, 'codigoRecibo', 'El comprobante no existe');
+    }
+    final result = await DatabaseService.instance.query(
+      'SELECT cu.numero_periodo, cu.fecha_vencimiento, cu.saldo_inicio_periodo, cu.tasa_aplicada, '
+      'cu.monto_interes_generado, cu.saldo_fin_periodo, '
+      'p.codigo_referencia, p.nombre_prestamo, p.numero_cuotas, '
+      'cl.nombre_cliente, cl.documento_identidad, cl.direccion '
+      'FROM cuotas cu '
+      'JOIN prestamos p ON p.prestamo_id = cu.prestamo_id '
+      'JOIN clientes cl ON cl.cliente_id = p.cliente_id '
+      'WHERE p.codigo_referencia = :prestamo AND cu.numero_periodo = :periodo '
+      'AND cu.interes_capitalizado = TRUE',
+      {'prestamo': partes[0], 'periodo': periodo},
+    );
+    if (result.rows.isEmpty) {
+      throw ArgumentError.value(codigo, 'codigoRecibo', 'El comprobante no existe');
+    }
+
+    final f = result.rows.first.typedAssoc();
+    final fecha = f['fecha_vencimiento'] as DateTime;
+    final tasa = _toDouble(f['tasa_aplicada']);
+    return {
+      'codigo_recibo': codigo,
+      'titulo': 'CAPITALIZACIÓN',
+      'fecha_emision': _formatDateDisplay(fecha),
+      'cliente_nombre': f['nombre_cliente'],
+      'cliente_documento': f['documento_identidad'],
+      'cliente_direccion': (f['direccion'] as String?)?.isNotEmpty == true ? f['direccion'] : 'N/A',
+      'prestamo_referencia': f['codigo_referencia'],
+      'prestamo_nombre': f['nombre_prestamo'],
+      'tipo_movimiento': 'Capitalizacion',
+      'metodo_pago': null,
+      'referencia': null,
+      'lineas': [
+        {
+          'fecha': _formatDateDisplay(fecha),
+          'descripcion': 'Saldo Inicial - Periodo ${_meses[fecha.month - 1]} '
+              '(Cuota $periodo de ${f['numero_cuotas']})',
+          'cantidad': 1,
+          'precio': _toDouble(f['saldo_inicio_periodo']),
+        },
+        {
+          'fecha': null,
+          'descripcion': 'Interés Capitalizado (${tasa.toStringAsFixed(1)}% sumado al saldo)',
+          'cantidad': 1,
+          'precio': _toDouble(f['monto_interes_generado']),
+        },
+      ],
+      'etiqueta_balance': 'SALDO FINAL',
+      'balance_pendiente': _toDouble(f['saldo_fin_periodo']),
+    };
   }
 
   static const _meses = [
@@ -71,6 +196,9 @@ class PagoService {
   /// necesita el PDF: cliente, préstamo, las líneas de detalle (saldo de
   /// referencia + el cargo cobrado) y el balance pendiente resultante.
   Future<Map<String, dynamic>> fetchReciboDetalle(String codigoRecibo) async {
+    if (codigoRecibo.startsWith(_prefijoCapitalizacion)) {
+      return _fetchCapitalizacionDetalle(codigoRecibo);
+    }
     final result = await DatabaseService.instance.query(
       'SELECT r.codigo_recibo, r.fecha_emision, r.monto_total_pagado, r.descripcion_concepto, '
       'r.metodo_pago, r.referencia, r.tipo_movimiento, r.balance_pendiente AS balance_congelado, '

@@ -522,6 +522,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
 
   Widget _buildPaymentCard(Map<String, dynamic> payment) {
     bool isActive = payment['activo'];
+    // Comprobante generado automáticamente por una cuota que capitalizó
+    // intereses (no es un pago del cliente): se distingue con su propio
+    // ícono, etiqueta y rótulo de monto.
+    final esCapitalizacion = payment['tipoMovimiento'] == 'Capitalizacion';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -543,7 +547,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   color: Colors.black.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.receipt_long, color: Colors.black, size: 18),
+                child: Icon(esCapitalizacion ? Icons.trending_up : Icons.receipt_long, color: Colors.black, size: 18),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -571,12 +575,24 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: isActive ? Colors.teal.shade50 : Colors.red.shade50,
+                      color: esCapitalizacion
+                          ? Colors.indigo.shade50
+                          : isActive
+                              ? Colors.teal.shade50
+                              : Colors.red.shade50,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      isActive ? 'VÁLIDO' : 'ANULADO',
-                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isActive ? Colors.teal : Colors.red.shade700),
+                      esCapitalizacion ? 'CAPITALIZADO' : (isActive ? 'VÁLIDO' : 'ANULADO'),
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        color: esCapitalizacion
+                            ? Colors.indigo.shade700
+                            : isActive
+                                ? Colors.teal
+                                : Colors.red.shade700,
+                      ),
                     ),
                   ),
                 ],
@@ -592,7 +608,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Monto Pagado', style: TextStyle(color: Colors.grey.shade800, fontSize: 10, fontWeight: FontWeight.w600)),
+                    Text(esCapitalizacion ? 'Interés Capitalizado' : 'Monto Pagado', style: TextStyle(color: Colors.grey.shade800, fontSize: 10, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
                     Text(payment['monto'], style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.black), maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
@@ -603,7 +619,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('Fecha de Emisión', style: TextStyle(color: Colors.grey.shade800, fontSize: 10, fontWeight: FontWeight.w600)),
+                    Text(esCapitalizacion ? 'Fecha de Capitalización' : 'Fecha de Emisión', style: TextStyle(color: Colors.grey.shade800, fontSize: 10, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
                     Text(payment['fecha_emision'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87), maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
@@ -726,8 +742,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   void _showPdfOptionsModal(BuildContext context, Map<String, dynamic> payment) {
     showPdfActionsDialog(
       context,
-      titulo: 'Recibo ${payment['codigo_recibo']}',
-      nombreArchivo: 'recibo_${payment['codigo_recibo']}.pdf',
+      titulo: '${payment['tipoMovimiento'] == 'Capitalizacion' ? 'Capitalización' : 'Recibo'} ${payment['codigo_recibo']}',
+      nombreArchivo: '${payment['tipoMovimiento'] == 'Capitalizacion' ? 'capitalizacion' : 'recibo'}_${payment['codigo_recibo']}.pdf',
       generarPdf: () => _generarPdfRecibo(payment['codigo_recibo'] as String),
       infoContent: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
