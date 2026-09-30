@@ -307,8 +307,11 @@ class PrestamoService {
     }
 
     return {
-      'codigo_recibo': p['codigo_referencia'],
-      'titulo': 'HISTORIAL',
+      // En el PDF se ve como un recibo ("RECIBO 20260900000005-H"). El sufijo
+      // "-H" evita que el número coincida con un recibo de pago real (usan el
+      // mismo formato AAAAMMSSSSSSSS) o con una capitalización ("-01", "-02"…).
+      'codigo_recibo': '${p['codigo_referencia']}-H',
+      'titulo': 'RECIBO',
       'fecha_emision': _formatDateDisplay(hoySinHora),
       'cliente_nombre': p['nombre_cliente'],
       'cliente_documento': p['documento_identidad'],
