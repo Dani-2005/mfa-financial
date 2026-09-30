@@ -156,8 +156,11 @@ class PagoService {
     final fecha = f['fecha_vencimiento'] as DateTime;
     final tasa = _toDouble(f['tasa_aplicada']);
     return {
-      'codigo_recibo': codigo,
-      'titulo': 'CAPITALIZACIÓN',
+      // En el PDF se ve como un recibo normal ("RECIBO 20260900000005-01"):
+      // el número es el código del préstamo + la cuota, sin el prefijo
+      // interno "CAP-" (que solo sirve para distinguirlo al buscarlo).
+      'codigo_recibo': codigo.substring(_prefijoCapitalizacion.length),
+      'titulo': 'RECIBO',
       'fecha_emision': _formatDateDisplay(fecha),
       'cliente_nombre': f['nombre_cliente'],
       'cliente_documento': f['documento_identidad'],
