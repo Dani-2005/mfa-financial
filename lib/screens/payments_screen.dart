@@ -401,20 +401,62 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     // Clientes y préstamos que aparecen en los pagos cargados. Si hay un
     // cliente elegido, el filtro de préstamo solo ofrece los de ese cliente.
     final clientes = <int, String>{};
-    // Código -> nombre del préstamo (si tiene), para mostrarlo junto al
-    // código en las opciones del filtro.
-    final prestamos = <String, String?>{};
+    // Código -> texto de la opción: el nombre del préstamo primero (o el del
+    // cliente si el préstamo no tiene nombre) y después el código, que es
+    // largo y dice poco a simple vista.
+    final prestamos = <String, String>{};
     for (final p in _allPayments) {
       final clienteId = p['cliente_id'] as int?;
       if (clienteId != null) clientes[clienteId] = p['cliente'] as String;
       final codigo = p['prestamo_codigo'] as String?;
       if (codigo != null && (_selectedClienteId == null || clienteId == _selectedClienteId)) {
-        prestamos[codigo] = p['prestamo_nombre'] as String?;
+        final nombre = p['prestamo_nombre'] as String?;
+        final titulo = (nombre != null && nombre.isNotEmpty) ? nombre : p['cliente'] as String;
+        prestamos[codigo] = '$titulo · #$codigo';
       }
     }
     final clientesOrdenados = clientes.entries.toList()
       ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
-    final prestamosOrdenados = prestamos.keys.toList()..sort();
+    final prestamosOrdenados = prestamos.keys.toList()
+      ..sort((a, b) => prestamos[a]!.toLowerCase().compareTo(prestamos[b]!.toLowerCase()));
+
+    final filtroCliente = CustomDropdown<int?>(
+      // Se recrea si _selectedClienteId cambia desde afuera (al
+      // recargar, si el cliente elegido ya no tiene pagos).
+      key: ValueKey('cliente-$_selectedClienteId'),
+      initialValue: _selectedClienteId,
+      decoration: _filterDecoration('Cliente', Icons.person_outline),
+      items: [
+        const CustomDropdownItem<int?>(value: null, label: 'Todos'),
+        ...clientesOrdenados.map((c) => CustomDropdownItem<int?>(value: c.key, label: c.value)),
+      ],
+      onChanged: (val) {
+        setState(() {
+          _selectedClienteId = val;
+          // El préstamo elegido puede no ser de este cliente.
+          _selectedPrestamo = null;
+          _currentPage = 1;
+        });
+      },
+    );
+    final filtroPrestamo = CustomDropdown<String?>(
+      // CustomDropdown es un FormField: guarda su propio valor y
+      // no se entera si _selectedPrestamo cambia desde afuera
+      // (al cambiar de cliente). La key lo recrea en ese caso.
+      key: ValueKey('prestamo-$_selectedClienteId-$_selectedPrestamo'),
+      initialValue: _selectedPrestamo,
+      decoration: _filterDecoration('Préstamo', Icons.request_quote_outlined),
+      items: [
+        const CustomDropdownItem<String?>(value: null, label: 'Todos'),
+        ...prestamosOrdenados.map((c) => CustomDropdownItem<String?>(value: c, label: prestamos[c]!)),
+      ],
+      onChanged: (val) {
+        setState(() {
+          _selectedPrestamo = val;
+          _currentPage = 1;
+        });
+      },
+    );
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -465,55 +507,28 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: CustomDropdown<int?>(
-                  // Se recrea si _selectedClienteId cambia desde afuera (al
-                  // recargar, si el cliente elegido ya no tiene pagos).
-                  key: ValueKey('cliente-$_selectedClienteId'),
-                  initialValue: _selectedClienteId,
-                  decoration: _filterDecoration('Cliente', Icons.person_outline),
-                  items: [
-                    const CustomDropdownItem<int?>(value: null, label: 'Todos'),
-                    ...clientesOrdenados.map((c) => CustomDropdownItem<int?>(value: c.key, label: c.value)),
+          // En pantallas angostas (teléfono) Cliente y Préstamo van cada uno
+          // a todo lo ancho: lado a lado quedaban a la mitad y el texto del
+          // préstamo, que es largo, casi no se leía.
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 600) {
+                return Column(
+                  children: [
+                    filtroCliente,
+                    const SizedBox(height: 12),
+                    filtroPrestamo,
                   ],
-                  onChanged: (val) {
-                    setState(() {
-                      _selectedClienteId = val;
-                      // El préstamo elegido puede no ser de este cliente.
-                      _selectedPrestamo = null;
-                      _currentPage = 1;
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: CustomDropdown<String?>(
-                  // CustomDropdown es un FormField: guarda su propio valor y
-                  // no se entera si _selectedPrestamo cambia desde afuera
-                  // (al cambiar de cliente). La key lo recrea en ese caso.
-                  key: ValueKey('prestamo-$_selectedClienteId-$_selectedPrestamo'),
-                  initialValue: _selectedPrestamo,
-                  decoration: _filterDecoration('Préstamo', Icons.request_quote_outlined),
-                  items: [
-                    const CustomDropdownItem<String?>(value: null, label: 'Todos'),
-                    ...prestamosOrdenados.map((c) {
-                      final nombre = prestamos[c];
-                      final label = (nombre != null && nombre.isNotEmpty) ? '#$c · $nombre' : '#$c';
-                      return CustomDropdownItem<String?>(value: c, label: label);
-                    }),
-                  ],
-                  onChanged: (val) {
-                    setState(() {
-                      _selectedPrestamo = val;
-                      _currentPage = 1;
-                    });
-                  },
-                ),
-              ),
-            ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: filtroCliente),
+                  const SizedBox(width: 12),
+                  Expanded(child: filtroPrestamo),
+                ],
+              );
+            },
           ),
         ],
       ),
