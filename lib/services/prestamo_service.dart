@@ -49,6 +49,17 @@ class PrestamoService {
   /// Datos completos de un préstamo (cambio de tasa programado, operación
   /// por fases, cliente, frecuencia, etc.) — usado para el encabezado del
   /// PDF del plan de pagos.
+  /// Historial del préstamo (desde la cuota 1 hasta la próxima que toque),
+  /// ya armado con el formato del recibo para [ReciboPdfService].
+  Future<Map<String, dynamic>> fetchHistorial(int prestamoId) async {
+    final response = await ApiClient.instance.get(
+      '/api/prestamos/$prestamoId/historial',
+      headers: await _headers(),
+    );
+    if (!response.ok) _throwError(response, 'No se pudo cargar el historial del préstamo.');
+    return response.data;
+  }
+
   Future<Map<String, dynamic>> fetchDetalle(int prestamoId) async {
     final response = await ApiClient.instance.get(
       '/api/prestamos/$prestamoId/detalle',

@@ -20,28 +20,27 @@ class ReciboPdfService {
     final lineas = (detalle['lineas'] as List).cast<Map<String, dynamic>>();
     final sello = await _buildSello();
 
+    // MultiPage: un recibo normal cabe en una hoja, pero el Historial del
+    // préstamo (mismo formato, una fila por cuota) puede ocupar varias; la
+    // tabla de detalle continúa en la hoja siguiente en vez de desbordarse.
     doc.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.letter,
         margin: const pw.EdgeInsets.all(28),
-        build: (context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              _buildEncabezado(detalle),
-              pw.SizedBox(height: 16),
-              _buildTablaCliente(detalle),
-              pw.SizedBox(height: 14),
-              _buildTablaDetalle(lineas),
-              _buildBalancePendiente(
-                detalle['balance_pendiente'] as double,
-                etiqueta: (detalle['etiqueta_balance'] as String?) ?? 'BALANCE PENDIENTE',
-              ),
-              pw.SizedBox(height: 24),
-              sello,
-            ],
-          );
-        },
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        build: (context) => [
+          _buildEncabezado(detalle),
+          pw.SizedBox(height: 16),
+          _buildTablaCliente(detalle),
+          pw.SizedBox(height: 14),
+          _buildTablaDetalle(lineas),
+          _buildBalancePendiente(
+            detalle['balance_pendiente'] as double,
+            etiqueta: (detalle['etiqueta_balance'] as String?) ?? 'BALANCE PENDIENTE',
+          ),
+          pw.SizedBox(height: 24),
+          sello,
+        ],
       ),
     );
 

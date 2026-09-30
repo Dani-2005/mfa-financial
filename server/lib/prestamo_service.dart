@@ -224,6 +224,105 @@ class PrestamoService {
     }).toList();
   }
 
+  static const _mesesNombre = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+  ];
+
+  /// Historial del préstamo para el PDF "Historial (PDF)" del detalle, con
+  /// el mismo formato del recibo: saldo inicial, una fila por cuota (interés
+  /// capitalizado, o interés cobrado con su estado), los movimientos de
+  /// capital en el mes donde aplican y el saldo final. Va desde la cuota 1
+  /// hasta la próxima cuota que toque (la primera que vence hoy o después;
+  /// como el interés se cobra por adelantado, esa ya se le cobra al
+  /// cliente). Si ya vencieron todas, incluye el préstamo completo.
+  Future<Map<String, dynamic>> fetchHistorial(int prestamoId) async {
+    final prestamoRows = await DatabaseService.instance.query(
+      'SELECT p.codigo_referencia, p.nombre_prestamo, p.capital_inicial, p.fecha_inicio, '
+      'c.nombre_cliente, c.documento_identidad, c.direccion '
+      'FROM prestamos p JOIN clientes c ON c.cliente_id = p.cliente_id '
+      'WHERE p.prestamo_id = :id',
+      {'id': prestamoId},
+    );
+    if (prestamoRows.rows.isEmpty) {
+      throw ArgumentError.value(prestamoId, 'prestamoId', 'El préstamo no existe');
+    }
+    final p = prestamoRows.rows.first.typedAssoc();
+
+    final cuotasRows = await DatabaseService.instance.query(
+      'SELECT numero_periodo, fecha_vencimiento, saldo_inicio_periodo, tasa_aplicada, '
+      'monto_interes_generado, interes_capitalizado, saldo_fin_periodo, estado '
+      'FROM cuotas WHERE prestamo_id = :id ORDER BY numero_periodo',
+      {'id': prestamoId},
+    );
+    final cuotas = cuotasRows.rows.map((r) => r.typedAssoc()).toList();
+
+    final hoy = DateTime.now();
+    final hoySinHora = DateTime(hoy.year, hoy.month, hoy.day);
+    var hasta = cuotas.indexWhere((c) => !(c['fecha_vencimiento'] as DateTime).isBefore(hoySinHora));
+    if (hasta == -1) hasta = cuotas.length - 1;
+    final incluidas = hasta < 0 ? const <Map<String, dynamic>>[] : cuotas.sublist(0, hasta + 1);
+
+    final movimientosRows = await DatabaseService.instance.query(
+      'SELECT tipo, periodo_aplicacion, monto, fecha_transaccion FROM transacciones_capital '
+      'WHERE prestamo_id = :id AND activo = TRUE AND periodo_aplicacion IS NOT NULL '
+      'ORDER BY periodo_aplicacion, fecha_transaccion',
+      {'id': prestamoId},
+    );
+    final movimientos = movimientosRows.rows.map((r) => r.typedAssoc()).toList();
+
+    final lineas = <Map<String, dynamic>>[
+      {
+        'fecha': _formatDateDisplay(p['fecha_inicio'] as DateTime),
+        'descripcion': 'Saldo Inicial',
+        'cantidad': 1,
+        'precio': _toDouble(p['capital_inicial']),
+      },
+    ];
+    for (final c in incluidas) {
+      final periodo = c['numero_periodo'] as int;
+      // Inyecciones y abonos se aplican al empezar su periodo, así que van
+      // justo antes del interés de esa cuota (que ya se calcula con ellos).
+      for (final m in movimientos.where((m) => m['periodo_aplicacion'] == periodo)) {
+        final esInyeccion = m['tipo'] == 'Inyeccion';
+        final monto = _toDouble(m['monto']);
+        lineas.add({
+          'fecha': _formatDateDisplay(m['fecha_transaccion'] as DateTime),
+          'descripcion': esInyeccion ? 'Inyección de capital (se suma al saldo)' : 'Abono a capital (se resta del saldo)',
+          'cantidad': 1,
+          'precio': esInyeccion ? monto : -monto,
+        });
+      }
+      final fecha = c['fecha_vencimiento'] as DateTime;
+      final mes = _mesesNombre[fecha.month - 1];
+      final base = '${_toDouble(c['tasa_aplicada']).toStringAsFixed(1)}% sobre '
+          '${_formatMoney(_toDouble(c['saldo_inicio_periodo']))}';
+      final capitalizado = c['interes_capitalizado'] as bool;
+      lineas.add({
+        'fecha': _formatDateDisplay(fecha),
+        'descripcion': capitalizado ? 'Interés Capitalizado $mes ($base)' : 'Interés $mes ($base) - ${c['estado']}',
+        'cantidad': 1,
+        'precio': _toDouble(c['monto_interes_generado']),
+      });
+    }
+
+    return {
+      'codigo_recibo': p['codigo_referencia'],
+      'titulo': 'HISTORIAL',
+      'fecha_emision': _formatDateDisplay(hoySinHora),
+      'cliente_nombre': p['nombre_cliente'],
+      'cliente_documento': p['documento_identidad'],
+      'cliente_direccion': (p['direccion'] as String?)?.isNotEmpty == true ? p['direccion'] : 'N/A',
+      'prestamo_referencia': p['codigo_referencia'],
+      'prestamo_nombre': p['nombre_prestamo'],
+      'lineas': lineas,
+      'etiqueta_balance': 'SALDO FINAL',
+      'balance_pendiente': incluidas.isEmpty
+          ? _toDouble(p['capital_inicial'])
+          : _toDouble(incluidas.last['saldo_fin_periodo']),
+    };
+  }
+
   /// Trae los datos completos de un préstamo (más allá de lo que ya
   /// muestra la tarjeta del listado): si tiene cambio de tasa programado,
   /// si es una operación por fases, cliente, frecuencia, etc. — usado para

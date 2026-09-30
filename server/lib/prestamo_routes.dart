@@ -120,6 +120,19 @@ Router buildPrestamoRouter() {
     }
   });
 
+  router.get('/<id>/historial', (Request request, String id) async {
+    final user = await usuarioAutenticado(request);
+    if (user == null) return errorResponse('Sesión no válida.', status: 401);
+    final prestamoId = int.tryParse(id);
+    if (prestamoId == null) return errorResponse('Id inválido.');
+    try {
+      final historial = await _prestamoService.fetchHistorial(prestamoId);
+      return jsonResponse(historial);
+    } on ArgumentError catch (e) {
+      return errorResponse('${e.message}', status: 404);
+    }
+  });
+
   router.get('/<id>/detalle', (Request request, String id) async {
     final user = await usuarioAutenticado(request);
     if (user == null) return errorResponse('Sesión no válida.', status: 401);

@@ -8,6 +8,7 @@ import '../services/cliente_service.dart';
 import '../services/loan_calculator.dart';
 import '../services/plan_pagos_pdf_service.dart';
 import '../services/prestamo_service.dart';
+import '../services/recibo_pdf_service.dart';
 import '../widgets/custom_dropdown.dart';
 import '../widgets/money_input_formatter.dart';
 import '../widgets/pdf_actions_dialog.dart';
@@ -1593,6 +1594,35 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     );
   }
 
+  /// PDF con el historial del préstamo (saldo inicial, interés de cada
+  /// cuota, movimientos de capital y saldo final) desde la cuota 1 hasta la
+  /// próxima que toque, con el mismo formato del recibo. Lo arma el servidor.
+  Future<Uint8List> _generarPdfHistorial() async {
+    final historial = await _prestamoService.fetchHistorial(widget.loan['prestamo_id'] as int);
+    return ReciboPdfService.generar(historial);
+  }
+
+  void _showHistorialPdfModal() {
+    showPdfActionsDialog(
+      context,
+      titulo: 'Historial — Préstamo #${_loan['code']}',
+      nombreArchivo: 'historial_${_loan['code']}.pdf',
+      generarPdf: _generarPdfHistorial,
+      infoContent: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Cliente: ${_loan['name']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          const SizedBox(height: 4),
+          Text(
+            'Desde la primera cuota hasta la próxima que toque: saldo inicial, interés de cada '
+            'mes (capitalizado o cobrado), movimientos de capital y saldo final.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Abre el formulario de "Registrar Préstamo" pero prellenado con los
   /// datos actuales de este préstamo, en modo edición. Si se guarda algo,
   /// refresca tanto la tabla de cuotas como la tarjeta de resumen de arriba
@@ -2363,6 +2393,28 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                         icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
                         label: const Text(
                           'Plan de Pagos (PDF)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.black,
+                          side: const BorderSide(color: Colors.black),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 28),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: MediaQuery.sizeOf(context).width >= 800 ? 300 : null,
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoadingCuotas ? null : _showHistorialPdfModal,
+                        icon: const Icon(Icons.history, size: 18),
+                        label: const Text(
+                          'Historial (PDF)',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
