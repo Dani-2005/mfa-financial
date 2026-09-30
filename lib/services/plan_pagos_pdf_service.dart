@@ -287,7 +287,7 @@ class PlanPagosPdfService {
   // su monto y fecha, encima de la cuota desde la que aplican.
   static const _columnasCuotas = ['Periodo', 'Fecha', 'Saldo Inicio', 'Tasa', 'Interés', 'Capitalizado', 'Saldo Fin', 'Estado'];
   static const _clavesCuotas = ['periodo', 'fecha', 'saldoInicio', 'tasa', 'interes', 'capitalizado', 'saldoFin', 'estado'];
-  // Columnas numéricas: van alineadas a la derecha (título incluido) para que
+  // Columnas numéricas: sus valores van alineados a la derecha para que
   // las cifras queden en columna. Fecha, Capitalizado y Estado son texto.
   static const _clavesNumericas = {'periodo', 'saldoInicio', 'tasa', 'interes', 'saldoFin'};
 
@@ -362,10 +362,7 @@ class PlanPagosPdfService {
         if (incluirEncabezado)
           pw.TableRow(
             decoration: pw.BoxDecoration(color: _colorEncabezado),
-            children: [
-              for (var i = 0; i < _columnasCuotas.length; i++)
-                _celdaEncabezado(_columnasCuotas[i], alinearDerecha: _clavesNumericas.contains(_clavesCuotas[i])),
-            ],
+            children: _columnasCuotas.map(_celdaEncabezado).toList(),
           ),
         for (final cuota in cuotas)
           pw.TableRow(
@@ -413,14 +410,15 @@ class PlanPagosPdfService {
     );
   }
 
-  static pw.Widget _celdaEncabezado(String texto, {bool alinearDerecha = false}) {
+  /// Los títulos de columna van siempre centrados (también si ocupan dos
+  /// líneas); los valores de abajo se alinean según su tipo en [_celda].
+  static pw.Widget _celdaEncabezado(String texto) {
     return pw.Container(
       padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-      alignment: alinearDerecha ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+      alignment: pw.Alignment.center,
       child: pw.Text(
         texto.toUpperCase(),
-        // Si el título ocupa dos líneas, cada línea también va a la derecha.
-        textAlign: alinearDerecha ? pw.TextAlign.right : pw.TextAlign.left,
+        textAlign: pw.TextAlign.center,
         style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
       ),
     );

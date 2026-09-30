@@ -101,8 +101,8 @@ class ReportePdfService {
 
   static pw.Widget _buildTabla(List<String> columnas, List<Map<String, dynamic>> filas) {
     // Las columnas son las que el usuario eligió para el reporte, así que se
-    // decide por su contenido cuáles son numéricas: esas (título incluido)
-    // van alineadas a la derecha, para que las cifras queden en columna.
+    // decide por su contenido cuáles son numéricas: esas van alineadas a la
+    // derecha, para que las cifras queden en columna.
     final numericas = {
       for (final col in columnas)
         if (_esColumnaNumerica(filas.map((f) => '${f[col] ?? ''}'))) col,
@@ -113,9 +113,7 @@ class ReportePdfService {
       children: [
         pw.TableRow(
           decoration: pw.BoxDecoration(color: _colorEncabezado),
-          children: columnas
-              .map((col) => _celdaEncabezado(col, alinearDerecha: numericas.contains(col)))
-              .toList(),
+          children: columnas.map(_celdaEncabezado).toList(),
         ),
         for (final fila in filas)
           pw.TableRow(
@@ -142,14 +140,15 @@ class ReportePdfService {
     return conContenido.isNotEmpty && conContenido.every(_valorNumerico.hasMatch);
   }
 
-  static pw.Widget _celdaEncabezado(String texto, {bool alinearDerecha = false}) {
+  /// Los títulos de columna van siempre centrados (también si ocupan dos
+  /// líneas); los valores de abajo se alinean según su tipo en [_celda].
+  static pw.Widget _celdaEncabezado(String texto) {
     return pw.Container(
       padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      alignment: alinearDerecha ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+      alignment: pw.Alignment.center,
       child: pw.Text(
         texto.toUpperCase(),
-        // Si el título ocupa dos líneas, cada línea también va a la derecha.
-        textAlign: alinearDerecha ? pw.TextAlign.right : pw.TextAlign.left,
+        textAlign: pw.TextAlign.center,
         style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
       ),
     );
