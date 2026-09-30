@@ -1,0 +1,46 @@
+# Compilación de la app de iOS/iPadOS en Codemagic (Macs en la nube con el
+# Xcode más reciente), para instalarla en iPhones/iPads SIN App Store ni
+# TestFlight: genera un .ipa firmado "Ad Hoc" que solo abre en los
+# dispositivos registrados en la cuenta de Apple Developer.
+#
+# Antes de la primera compilación, en Codemagic:
+#   1. Teams → Integrations → Developer Portal: conectar una API key de
+#      App Store Connect con el nombre "MAF App Store Connect".
+#   2. Teams → Code signing identities: generar/subir el certificado de
+#      distribución y descargar el perfil Ad Hoc de com.maffinancial.app
+#      (el perfil debe crearse DESPUÉS de registrar el iPad/iPhone).
+#
+# Cada vez que se registra un dispositivo nuevo hay que volver a descargar
+# el perfil Ad Hoc (paso 2) y compilar de nuevo.
+
+workflows:
+  ios-adhoc:
+    name: iOS Ad Hoc (iPad / iPhone)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: MAF App Store Connect
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: ad_hoc
+        bundle_identifier: com.maffinancial.app
+    scripts:
+      - name: Dependencias de Flutter
+        script: flutter pub get
+      - name: Aplicar certificado y perfil de firma
+        script: xcode-project use-profiles
+      # Sin sección "triggering": solo se compila al lanzarlo a mano desde
+      # Codemagic ("Start new build"), no con cada push. `flutter build ipa`
+      # genera el Podfile y corre `pod install` solo.
+      - name: Compilar el .ipa
+        script: |
+          flutter build ipa --release \
+            --build-number=$PROJECT_BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
