@@ -178,8 +178,8 @@ class ReciboPdfService {
           children: [
             _celdaEncabezado('FECHA'),
             _celdaEncabezado('DESCRIPCION'),
-            _celdaEncabezado('CNT', alinearDerecha: true),
-            _celdaEncabezado('PRECIO UNITARIO', alinearDerecha: true),
+            _celdaEncabezado('CNT'),
+            _celdaEncabezado('PRECIO UNITARIO'),
           ],
         ),
         for (final linea in lineas)
@@ -226,16 +226,15 @@ class ReciboPdfService {
     );
   }
 
-  static pw.Widget _celdaEncabezado(String texto, {bool centrado = false, bool alinearDerecha = false}) {
+  /// Los títulos de columna van siempre centrados; los valores de abajo se
+  /// alinean según su tipo en [_celda] (números a la derecha).
+  static pw.Widget _celdaEncabezado(String texto) {
     return pw.Container(
       padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      alignment: alinearDerecha
-          ? pw.Alignment.centerRight
-          : centrado
-              ? pw.Alignment.center
-              : pw.Alignment.centerLeft,
+      alignment: pw.Alignment.center,
       child: pw.Text(
         texto,
+        textAlign: pw.TextAlign.center,
         style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
       ),
     );
