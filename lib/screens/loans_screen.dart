@@ -2417,7 +2417,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Desglosa los periodos de cobro, intereses generados y capital amortizado.',
+                'Desglosa los periodos de cobro, intereses generados y saldo de cada periodo.',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade800),
               ),
               if (_cuotas.any((c) => c['capitalizado'] == 'Sí')) ...[
@@ -2557,15 +2557,6 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                           DataColumn(
                             label: Text(
                               'Interés',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          DataColumn(
-                            label: Text(
-                              'Amortización',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,
@@ -2863,12 +2854,6 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
           Text(
             cuota['interes'] as String,
             style: const TextStyle(fontSize: 12, color: Colors.redAccent),
-          ),
-        ),
-        DataCell(
-          Text(
-            cuota['amortizacion'] as String,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
           ),
         ),
         DataCell(

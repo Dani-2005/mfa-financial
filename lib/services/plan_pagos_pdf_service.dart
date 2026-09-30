@@ -282,11 +282,14 @@ class PlanPagosPdfService {
     );
   }
 
-  static const _columnasCuotas = ['Periodo', 'Fecha', 'Saldo Inicio', 'Tasa', 'Interés', 'Amortización', 'Capitalizado', 'Saldo Fin', 'Estado'];
-  static const _clavesCuotas = ['periodo', 'fecha', 'saldoInicio', 'tasa', 'interes', 'amortizacion', 'capitalizado', 'saldoFin', 'estado'];
+  // Sin columna de amortización: las cuotas son solo de interés (siempre
+  // saldría 0,00) y los abonos a capital ya aparecen como filas propias con
+  // su monto y fecha, encima de la cuota desde la que aplican.
+  static const _columnasCuotas = ['Periodo', 'Fecha', 'Saldo Inicio', 'Tasa', 'Interés', 'Capitalizado', 'Saldo Fin', 'Estado'];
+  static const _clavesCuotas = ['periodo', 'fecha', 'saldoInicio', 'tasa', 'interes', 'capitalizado', 'saldoFin', 'estado'];
   // Columnas numéricas: van alineadas a la derecha (título incluido) para que
   // las cifras queden en columna. Fecha, Capitalizado y Estado son texto.
-  static const _clavesNumericas = {'periodo', 'saldoInicio', 'tasa', 'interes', 'amortizacion', 'saldoFin'};
+  static const _clavesNumericas = {'periodo', 'saldoInicio', 'tasa', 'interes', 'saldoFin'};
 
   /// Construye la tabla de cuotas insertando, justo arriba de la cuota a
   /// partir de la cual se aplica cada movimiento de capital (o el cambio de
@@ -344,17 +347,16 @@ class PlanPagosPdfService {
       border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
       // Anchos según el contenido (mismo orden que _columnasCuotas): con
       // columnas iguales los saldos grandes se partían en dos líneas y
-      // "AMORTIZACIÓN"/"CAPITALIZADO" se cortaban a mitad de palabra.
+      // "CAPITALIZADO" se cortaba a mitad de palabra.
       columnWidths: const {
         0: pw.FlexColumnWidth(0.9), // Periodo
         1: pw.FlexColumnWidth(1.0), // Fecha
-        2: pw.FlexColumnWidth(1.3), // Saldo Inicio
-        3: pw.FlexColumnWidth(0.6), // Tasa
-        4: pw.FlexColumnWidth(1.1), // Interés
-        5: pw.FlexColumnWidth(1.35), // Amortización
-        6: pw.FlexColumnWidth(1.3), // Capitalizado
-        7: pw.FlexColumnWidth(1.3), // Saldo Fin
-        8: pw.FlexColumnWidth(0.95), // Estado
+        2: pw.FlexColumnWidth(1.35), // Saldo Inicio
+        3: pw.FlexColumnWidth(0.65), // Tasa
+        4: pw.FlexColumnWidth(1.15), // Interés
+        5: pw.FlexColumnWidth(1.2), // Capitalizado
+        6: pw.FlexColumnWidth(1.35), // Saldo Fin
+        7: pw.FlexColumnWidth(1.0), // Estado
       },
       children: [
         if (incluirEncabezado)
