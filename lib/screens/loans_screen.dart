@@ -2459,18 +2459,24 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
               const SizedBox(height: 20),
 
               // 2. TABLA DE CUOTAS (PLAN DE PAGOS) - CENTRADA
-              const Text(
-                'Tabla de Cuotas (Plan de Pagos)',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
+              const Center(
+                child: Text(
+                  'Tabla de Cuotas (Plan de Pagos)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
                 ),
               ),
               const SizedBox(height: 4),
-              Text(
-                'Desglosa los periodos de cobro, intereses generados y saldo de cada periodo.',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade800),
+              Center(
+                child: Text(
+                  'Desglosa los periodos de cobro, intereses generados y saldo de cada periodo.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade800),
+                ),
               ),
               if (_cuotas.any((c) => c['capitalizado'] == 'Sí')) ...[
                 const SizedBox(height: 8),
