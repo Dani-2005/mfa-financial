@@ -120,6 +120,11 @@ class PrestamoService {
       'p.tasa_interes_mensual, p.tipo_tasa, p.tipo_calculo, p.frecuencia_pago, p.fecha_inicio, '
       'p.numero_cuotas, p.mes_cambio_capitalizacion, p.estado, p.activo, c.nombre_cliente, c.tipo_cliente, '
       'p.estado_id, e.nombre AS estado_nombre, p.fecha_vencimiento_letra, '
+      // Saldo a hoy: el de cierre de la próxima cuota que toque (la primera
+      // que vence hoy o después), o el de la última si ya vencieron todas.
+      // Misma regla que [fetchSaldoAHoy] y que el "SALDO FINAL" del Historial.
+      '(SELECT cu.saldo_fin_periodo FROM cuotas cu WHERE cu.prestamo_id = p.prestamo_id '
+      'AND cu.fecha_vencimiento >= CURDATE() ORDER BY cu.numero_periodo LIMIT 1) AS saldo_proxima_cuota, '
       "(SELECT COUNT(*) FROM cuotas cu WHERE cu.prestamo_id = p.prestamo_id AND cu.interes_capitalizado = FALSE) "
       'AS cuotas_cobrables, '
       "(SELECT COUNT(*) FROM cuotas cu WHERE cu.prestamo_id = p.prestamo_id AND cu.interes_capitalizado = FALSE "
@@ -205,7 +210,15 @@ class PrestamoService {
         // Mismo valor que 'startDate' (más abajo) pero en ISO 8601, para el
         // filtro por rango de fecha de inicio.
         'fechaInicioRaw': (f['fecha_inicio'] as DateTime).toIso8601String(),
-        'remainingAmount': _formatMoney(_toDouble(f['balance_actual'])),
+        // Préstamos vigentes: saldo a hoy (capital + inyecciones − abonos +
+        // intereses ya capitalizados), el mismo que suma el Dashboard. Si ya
+        // vencieron todas las cuotas, el saldo final del plan. Los
+        // finalizados muestran su balance guardado (0 tras liquidarse).
+        'remainingAmount': _formatMoney(
+          activo && estadoDb != 'Pagado'
+              ? _toDouble(f['saldo_proxima_cuota'] ?? saldoFinalProyectado)
+              : _toDouble(f['balance_actual']),
+        ),
         'progressText': progressText,
         'progressValue': progressValue,
         'status': status,
@@ -236,6 +249,24 @@ class PrestamoService {
   /// hasta la próxima cuota que toque (la primera que vence hoy o después;
   /// como el interés se cobra por adelantado, esa ya se le cobra al
   /// cliente). Si ya vencieron todas, incluye el préstamo completo.
+  /// Saldo del préstamo a hoy: capital inicial + inyecciones − abonos +
+  /// intereses ya capitalizados. Es el saldo de cierre de la próxima cuota
+  /// que toque (la primera que vence hoy o después; el interés se cobra por
+  /// adelantado), o el de la última cuota si ya vencieron todas. Misma regla
+  /// que el "SALDO FINAL" del Historial, la tarjeta del préstamo y el
+  /// "Capital Total Prestado" del Dashboard.
+  Future<double> fetchSaldoAHoy(int prestamoId) async {
+    final result = await DatabaseService.instance.query(
+      'SELECT COALESCE('
+      '(SELECT saldo_fin_periodo FROM cuotas WHERE prestamo_id = :id AND fecha_vencimiento >= CURDATE() '
+      'ORDER BY numero_periodo LIMIT 1), '
+      '(SELECT saldo_fin_periodo FROM cuotas WHERE prestamo_id = :id ORDER BY numero_periodo DESC LIMIT 1), '
+      '(SELECT balance_actual FROM prestamos WHERE prestamo_id = :id)) AS saldo',
+      {'id': prestamoId},
+    );
+    return _toDouble(result.rows.first.typedAssoc()['saldo'] ?? 0);
+  }
+
   Future<Map<String, dynamic>> fetchHistorial(int prestamoId) async {
     final prestamoRows = await DatabaseService.instance.query(
       'SELECT p.codigo_referencia, p.nombre_prestamo, p.capital_inicial, p.fecha_inicio, '
@@ -1444,6 +1475,8 @@ class PrestamoService {
       },
     );
 
-    return balanceActualizado;
+    // La pantalla muestra el saldo a hoy (no la proyección guardada en
+    // balance_actual), así que se devuelve ese para refrescarla.
+    return fetchSaldoAHoy(prestamoId);
   }
 }

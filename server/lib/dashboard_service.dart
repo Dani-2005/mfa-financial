@@ -4,8 +4,8 @@ import 'database_service.dart';
 /// escribe nada (solo lecturas agregadas), así que no necesita un
 /// `usuarioResponsable` explícito como los servicios que sí auditan.
 class DashboardService {
-  /// Trae el capital total prestado actual (acumulado de préstamos activos)
-  /// con su variación porcentual contra el cierre del mes anterior, y por
+  /// Trae el capital total prestado actual con su variación porcentual
+  /// contra el cierre del mes anterior, y por
   /// separado una serie de "capital nuevo colocado" mes a mes (últimos 6
   /// meses) para graficar la tendencia real de negocio nuevo.
   ///
@@ -13,14 +13,22 @@ class DashboardService {
   /// ya finalizados/anulados de vuelta: así una liquidación no reescribe el
   /// historial (a diferencia del total acumulado, que sí solo mira
   /// préstamos activos hoy).
+  ///
+  /// El total es la suma del SALDO de cada préstamo activo a esa fecha
+  /// (capital inicial + inyecciones − abonos + intereses ya capitalizados),
+  /// con la misma regla que el "SALDO FINAL" del Historial y la tarjeta de
+  /// cada préstamo: el saldo de cierre de la próxima cuota que toque (la
+  /// primera que vence en esa fecha o después), o el de la última cuota si
+  /// ya vencieron todas. Así la suma de las tarjetas cuadra con este total.
   Future<Map<String, dynamic>> fetchCapitalSummary() async {
     final result = await DatabaseService.instance.query(
-      'SELECT capital_inicial, fecha_inicio, activo, estado FROM prestamos',
+      'SELECT prestamo_id, capital_inicial, fecha_inicio, activo, estado FROM prestamos',
     );
 
     final loans = result.rows.map((row) {
       final fields = row.typedAssoc();
       return {
+        'prestamo_id': fields['prestamo_id'] as int,
         'capital': double.parse(fields['capital_inicial'].toString()),
         'fecha_inicio': fields['fecha_inicio'] as DateTime,
         'activo': fields['activo'] as bool,
@@ -30,11 +38,34 @@ class DashboardService {
 
     final loansActivos = loans.where((l) => l['activo'] as bool).toList();
 
+    // Cronograma de cada préstamo (fecha de vencimiento y saldo de cierre de
+    // cada cuota, en orden), para saber su saldo en cualquier fecha.
+    final cuotasResult = await DatabaseService.instance.query(
+      'SELECT prestamo_id, fecha_vencimiento, saldo_fin_periodo FROM cuotas ORDER BY prestamo_id, numero_periodo',
+    );
+    final cuotasPorPrestamo = <int, List<Map<String, dynamic>>>{};
+    for (final row in cuotasResult.rows) {
+      final f = row.typedAssoc();
+      cuotasPorPrestamo.putIfAbsent(f['prestamo_id'] as int, () => []).add({
+        'fecha': f['fecha_vencimiento'] as DateTime,
+        'saldo': double.parse(f['saldo_fin_periodo'].toString()),
+      });
+    }
+
+    double saldoAl(Map<String, dynamic> loan, DateTime fecha) {
+      final dia = DateTime(fecha.year, fecha.month, fecha.day);
+      final cuotas = cuotasPorPrestamo[loan['prestamo_id']] ?? const [];
+      if (cuotas.isEmpty) return loan['capital'] as double;
+      for (final c in cuotas) {
+        if (!(c['fecha'] as DateTime).isBefore(dia)) return c['saldo'] as double;
+      }
+      return cuotas.last['saldo'] as double;
+    }
+
     double totalHasta(DateTime limite) {
-      return loansActivos.where((l) => !(l['fecha_inicio'] as DateTime).isAfter(limite)).fold<double>(
-            0,
-            (sum, l) => sum + (l['capital'] as double),
-          );
+      return loansActivos
+          .where((l) => !(l['fecha_inicio'] as DateTime).isAfter(limite))
+          .fold<double>(0, (sum, l) => sum + saldoAl(l, limite));
     }
 
     final now = DateTime.now();
