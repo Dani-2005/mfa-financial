@@ -284,6 +284,9 @@ class PlanPagosPdfService {
 
   static const _columnasCuotas = ['Periodo', 'Fecha', 'Saldo Inicio', 'Tasa', 'Interés', 'Amortización', 'Capitalizado', 'Saldo Fin', 'Estado'];
   static const _clavesCuotas = ['periodo', 'fecha', 'saldoInicio', 'tasa', 'interes', 'amortizacion', 'capitalizado', 'saldoFin', 'estado'];
+  // Columnas numéricas: van alineadas a la derecha (título incluido) para que
+  // las cifras queden en columna. Fecha, Capitalizado y Estado son texto.
+  static const _clavesNumericas = {'periodo', 'saldoInicio', 'tasa', 'interes', 'amortizacion', 'saldoFin'};
 
   /// Construye la tabla de cuotas insertando, justo arriba de la cuota a
   /// partir de la cual se aplica cada movimiento de capital (o el cambio de
@@ -339,16 +342,34 @@ class PlanPagosPdfService {
   static pw.Widget _buildTablaCuotas(List<Map<String, dynamic>> cuotas, {bool incluirEncabezado = true}) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-      columnWidths: {for (int i = 0; i < _columnasCuotas.length; i++) i: const pw.FlexColumnWidth(1)},
+      // Anchos según el contenido (mismo orden que _columnasCuotas): con
+      // columnas iguales los saldos grandes se partían en dos líneas y
+      // "AMORTIZACIÓN"/"CAPITALIZADO" se cortaban a mitad de palabra.
+      columnWidths: const {
+        0: pw.FlexColumnWidth(0.9), // Periodo
+        1: pw.FlexColumnWidth(1.0), // Fecha
+        2: pw.FlexColumnWidth(1.3), // Saldo Inicio
+        3: pw.FlexColumnWidth(0.6), // Tasa
+        4: pw.FlexColumnWidth(1.1), // Interés
+        5: pw.FlexColumnWidth(1.35), // Amortización
+        6: pw.FlexColumnWidth(1.3), // Capitalizado
+        7: pw.FlexColumnWidth(1.3), // Saldo Fin
+        8: pw.FlexColumnWidth(0.95), // Estado
+      },
       children: [
         if (incluirEncabezado)
           pw.TableRow(
             decoration: pw.BoxDecoration(color: _colorEncabezado),
-            children: _columnasCuotas.map(_celdaEncabezado).toList(),
+            children: [
+              for (var i = 0; i < _columnasCuotas.length; i++)
+                _celdaEncabezado(_columnasCuotas[i], alinearDerecha: _clavesNumericas.contains(_clavesCuotas[i])),
+            ],
           ),
         for (final cuota in cuotas)
           pw.TableRow(
-            children: _clavesCuotas.map((clave) => _celda('${cuota[clave] ?? ''}')).toList(),
+            children: _clavesCuotas
+                .map((clave) => _celda('${cuota[clave] ?? ''}', alinearDerecha: _clavesNumericas.contains(clave)))
+                .toList(),
           ),
       ],
     );
@@ -390,20 +411,28 @@ class PlanPagosPdfService {
     );
   }
 
-  static pw.Widget _celdaEncabezado(String texto) {
+  static pw.Widget _celdaEncabezado(String texto, {bool alinearDerecha = false}) {
     return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      alignment: alinearDerecha ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
       child: pw.Text(
         texto.toUpperCase(),
+        // Si el título ocupa dos líneas, cada línea también va a la derecha.
+        textAlign: alinearDerecha ? pw.TextAlign.right : pw.TextAlign.left,
         style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
       ),
     );
   }
 
-  static pw.Widget _celda(String texto) {
+  static pw.Widget _celda(String texto, {bool alinearDerecha = false}) {
     return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      child: pw.Text(texto, style: const pw.TextStyle(fontSize: 8)),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      alignment: alinearDerecha ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+      child: pw.Text(
+        texto,
+        textAlign: alinearDerecha ? pw.TextAlign.right : pw.TextAlign.left,
+        style: const pw.TextStyle(fontSize: 8),
+      ),
     );
   }
 

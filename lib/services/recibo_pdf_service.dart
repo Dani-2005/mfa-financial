@@ -179,7 +179,7 @@ class ReciboPdfService {
           children: [
             _celdaEncabezado('FECHA'),
             _celdaEncabezado('DESCRIPCION'),
-            _celdaEncabezado('CNT', centrado: true),
+            _celdaEncabezado('CNT', alinearDerecha: true),
             _celdaEncabezado('PRECIO UNITARIO', alinearDerecha: true),
           ],
         ),
@@ -188,7 +188,7 @@ class ReciboPdfService {
             children: [
               _celda((linea['fecha'] as String?) ?? ''),
               _celda(linea['descripcion'] as String),
-              _celda('${linea['cantidad']}', centrado: true),
+              _celda('${linea['cantidad']}', alinearDerecha: true),
               _celda(_formatMoneda(linea['precio'] as double), alinearDerecha: true),
             ],
           ),

@@ -100,36 +100,70 @@ class ReportePdfService {
   }
 
   static pw.Widget _buildTabla(List<String> columnas, List<Map<String, dynamic>> filas) {
+    // Las columnas son las que el usuario eligió para el reporte, así que se
+    // decide por su contenido cuáles son numéricas: esas (título incluido)
+    // van alineadas a la derecha, para que las cifras queden en columna.
+    final numericas = {
+      for (final col in columnas)
+        if (_esColumnaNumerica(filas.map((f) => '${f[col] ?? ''}'))) col,
+    };
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
       columnWidths: {for (int i = 0; i < columnas.length; i++) i: const pw.FlexColumnWidth(1)},
       children: [
         pw.TableRow(
           decoration: pw.BoxDecoration(color: _colorEncabezado),
-          children: columnas.map(_celdaEncabezado).toList(),
+          children: columnas
+              .map((col) => _celdaEncabezado(col, alinearDerecha: numericas.contains(col)))
+              .toList(),
         ),
         for (final fila in filas)
           pw.TableRow(
-            children: columnas.map((col) => _celda('${fila[col] ?? ''}')).toList(),
+            children: columnas
+                .map((col) => _celda('${fila[col] ?? ''}', alinearDerecha: numericas.contains(col)))
+                .toList(),
           ),
       ],
     );
   }
 
-  static pw.Widget _celdaEncabezado(String texto) {
+  /// Monto ("\$1.000,00"), porcentaje ("2.0%"), número corto ("3", "125") o
+  /// cantidad con unidad ("24 cuotas"). Los códigos de préstamo/recibo, las
+  /// cédulas, los teléfonos y las fechas NO cuentan: son identificadores,
+  /// no cantidades, y se leen mejor alineados a la izquierda.
+  static final _valorNumerico = RegExp(
+    r'^(-?\$ ?[\d.]+(,\d+)?|-?\d+([.,]\d+)?%|-?\d{1,6}([.,]\d+)?|\d+ cuotas?)$',
+  );
+
+  /// Una columna es numérica si todos sus valores con contenido lo son
+  /// ("N/A" y vacíos no cuentan) y tiene al menos uno.
+  static bool _esColumnaNumerica(Iterable<String> valores) {
+    final conContenido = valores.map((v) => v.trim()).where((v) => v.isNotEmpty && v != 'N/A');
+    return conContenido.isNotEmpty && conContenido.every(_valorNumerico.hasMatch);
+  }
+
+  static pw.Widget _celdaEncabezado(String texto, {bool alinearDerecha = false}) {
     return pw.Container(
       padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      alignment: alinearDerecha ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
       child: pw.Text(
         texto.toUpperCase(),
+        // Si el título ocupa dos líneas, cada línea también va a la derecha.
+        textAlign: alinearDerecha ? pw.TextAlign.right : pw.TextAlign.left,
         style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
       ),
     );
   }
 
-  static pw.Widget _celda(String texto) {
+  static pw.Widget _celda(String texto, {bool alinearDerecha = false}) {
     return pw.Container(
       padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      child: pw.Text(texto, style: const pw.TextStyle(fontSize: 8.5)),
+      alignment: alinearDerecha ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+      child: pw.Text(
+        texto,
+        textAlign: alinearDerecha ? pw.TextAlign.right : pw.TextAlign.left,
+        style: const pw.TextStyle(fontSize: 8.5),
+      ),
     );
   }
 
