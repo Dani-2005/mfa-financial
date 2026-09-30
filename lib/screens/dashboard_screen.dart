@@ -19,6 +19,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final DashboardService _dashboardService = DashboardService();
 
   double? _totalCapital;
+  // Saldo al final del plan de todos los préstamos activos (con inyecciones
+  // y capitalizaciones que todavía no ocurrieron).
+  double? _totalCapitalProyectado;
   double? _porcentajeCambio;
   List<double> _serieMensual = [];
   bool? _capitalNuevoCreciendo;
@@ -59,6 +62,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       setState(() {
         _totalCapital = capitalSummary['total_actual'] as double;
+        _totalCapitalProyectado = (capitalSummary['total_proyectado'] as num?)?.toDouble();
         _porcentajeCambio = capitalSummary['porcentaje_cambio'] as double?;
         _serieMensual = capitalSummary['serie_mensual'] as List<double>;
         _capitalNuevoCreciendo = capitalSummary['capital_nuevo_creciendo'] as bool?;
@@ -302,6 +306,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       tituloModal: 'Capital Nuevo Colocado',
       total: _totalCapital,
       porcentajeCambio: _porcentajeCambio,
+      notaInferior: _totalCapitalProyectado == null
+          ? null
+          : 'Proyectado al final del plan: ${_formatCurrency(_totalCapitalProyectado!)}',
       serieMensual: _serieMensual,
       creciendo: _capitalNuevoCreciendo,
       leyendaGrafica: 'Capital nuevo · 6 meses',
@@ -420,6 +427,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required String tituloModal,
     required double? total,
     required double? porcentajeCambio,
+    String? notaInferior,
     required List<double> serieMensual,
     required bool? creciendo,
     required String leyendaGrafica,
@@ -515,6 +523,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             porcentajeCambio: porcentajeCambio,
                             textoSinDatos: textoSinDatos,
                           ),
+                          if (notaInferior != null) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(Icons.trending_up, size: 14, color: Colors.grey.shade700),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    notaInferior,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.grey.shade800,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),

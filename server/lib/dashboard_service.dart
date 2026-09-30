@@ -71,6 +71,14 @@ class DashboardService {
     final now = DateTime.now();
     final totalActual = totalHasta(now);
 
+    // Proyectado: saldo al final del plan de cada préstamo activo (su última
+    // cuota), con las inyecciones programadas y las capitalizaciones que
+    // todavía no ocurrieron. Es lo que quedaría prestado si todo sigue el plan.
+    final totalProyectado = loansActivos.fold<double>(0, (sum, l) {
+      final cuotas = cuotasPorPrestamo[l['prestamo_id']] ?? const [];
+      return sum + (cuotas.isEmpty ? l['capital'] as double : cuotas.last['saldo'] as double);
+    });
+
     final finMesPasado = DateTime(now.year, now.month, 1).subtract(const Duration(days: 1));
     final totalMesPasado = totalHasta(finMesPasado);
 
@@ -101,6 +109,7 @@ class DashboardService {
 
     return {
       'total_actual': totalActual,
+      'total_proyectado': totalProyectado,
       'total_mes_pasado': totalMesPasado,
       'porcentaje_cambio': porcentajeCambio,
       'serie_mensual': serieCapitalNuevo,
