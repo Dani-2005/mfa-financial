@@ -16,10 +16,10 @@ class DashboardService {
   ///
   /// El total es la suma del SALDO de cada préstamo activo a esa fecha
   /// (capital inicial + inyecciones − abonos + intereses ya capitalizados),
-  /// con la misma regla que el "SALDO FINAL" del Historial y la tarjeta de
-  /// cada préstamo: el saldo de cierre de la próxima cuota que toque (la
-  /// primera que vence en esa fecha o después), o el de la última cuota si
-  /// ya vencieron todas. Así la suma de las tarjetas cuadra con este total.
+  /// con la misma regla que la tarjeta de cada préstamo: el saldo de cierre
+  /// del periodo en curso (la última cuota cuya fecha ya llegó), o el capital
+  /// inicial si todavía no empezó ninguno. Así la suma de las tarjetas cuadra
+  /// con este total.
   Future<Map<String, dynamic>> fetchCapitalSummary() async {
     final result = await DatabaseService.instance.query(
       'SELECT prestamo_id, capital_inicial, fecha_inicio, activo, estado FROM prestamos',
@@ -52,14 +52,17 @@ class DashboardService {
       });
     }
 
+    // Saldo de cierre del periodo en curso en [fecha]: la última cuota cuya
+    // fecha ya llegó. Si todavía no empezó ningún periodo, el capital inicial.
     double saldoAl(Map<String, dynamic> loan, DateTime fecha) {
       final dia = DateTime(fecha.year, fecha.month, fecha.day);
       final cuotas = cuotasPorPrestamo[loan['prestamo_id']] ?? const [];
-      if (cuotas.isEmpty) return loan['capital'] as double;
+      double saldo = loan['capital'] as double;
       for (final c in cuotas) {
-        if (!(c['fecha'] as DateTime).isBefore(dia)) return c['saldo'] as double;
+        if ((c['fecha'] as DateTime).isAfter(dia)) break;
+        saldo = c['saldo'] as double;
       }
-      return cuotas.last['saldo'] as double;
+      return saldo;
     }
 
     double totalHasta(DateTime limite) {
