@@ -1237,7 +1237,7 @@ class _LoansScreenState extends State<LoansScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Monto Total',
+                          'Monto Inicial',
                           style: TextStyle(
                             color: Colors.grey.shade800,
                             fontSize: 10,
