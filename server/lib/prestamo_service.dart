@@ -241,13 +241,6 @@ class PrestamoService {
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
   ];
 
-  /// Historial del préstamo para el PDF "Historial (PDF)" del detalle, con
-  /// el mismo formato del recibo: saldo inicial, una fila por cuota (interés
-  /// capitalizado, o interés cobrado con su estado), los movimientos de
-  /// capital en el mes donde aplican y el saldo final. Va desde la cuota 1
-  /// hasta la próxima cuota que toque (la primera que vence hoy o después;
-  /// como el interés se cobra por adelantado, esa ya se le cobra al
-  /// cliente). Si ya vencieron todas, incluye el préstamo completo.
   /// Saldo del préstamo a hoy: capital inicial + inyecciones − abonos +
   /// intereses ya capitalizados. Es el saldo de cierre del periodo en curso:
   /// la última cuota cuya fecha ya llegó (hoy o antes; el interés se cobra
@@ -265,6 +258,14 @@ class PrestamoService {
     return _toDouble(result.rows.first.typedAssoc()['saldo'] ?? 0);
   }
 
+  /// Historial del préstamo para el PDF "Historial (PDF)" del detalle, con
+  /// el mismo formato del recibo: saldo inicial, una fila por cuota (interés
+  /// capitalizado, o interés cobrado con su estado), los movimientos de
+  /// capital en el mes donde aplican y el saldo final. Va desde la cuota 1
+  /// hasta el periodo en curso (la última cuota cuya fecha ya llegó, hoy o
+  /// antes), así su saldo final coincide con [fetchSaldoAHoy], la tarjeta
+  /// del préstamo y el Dashboard. Si todavía no empezó ningún periodo, solo
+  /// trae el saldo inicial.
   Future<Map<String, dynamic>> fetchHistorial(int prestamoId) async {
     final prestamoRows = await DatabaseService.instance.query(
       'SELECT p.codigo_referencia, p.nombre_prestamo, p.capital_inicial, p.fecha_inicio, '
@@ -288,9 +289,7 @@ class PrestamoService {
 
     final hoy = DateTime.now();
     final hoySinHora = DateTime(hoy.year, hoy.month, hoy.day);
-    var hasta = cuotas.indexWhere((c) => !(c['fecha_vencimiento'] as DateTime).isBefore(hoySinHora));
-    if (hasta == -1) hasta = cuotas.length - 1;
-    final incluidas = hasta < 0 ? const <Map<String, dynamic>>[] : cuotas.sublist(0, hasta + 1);
+    final incluidas = cuotas.where((c) => !(c['fecha_vencimiento'] as DateTime).isAfter(hoySinHora)).toList();
 
     final movimientosRows = await DatabaseService.instance.query(
       'SELECT tipo, periodo_aplicacion, monto, fecha_transaccion FROM transacciones_capital '

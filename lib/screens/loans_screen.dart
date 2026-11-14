@@ -1614,7 +1614,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
           Text('Cliente: ${_loan['name']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
           const SizedBox(height: 4),
           Text(
-            'Desde la primera cuota hasta la próxima que toque: saldo inicial, interés de cada '
+            'Desde la primera cuota hasta el mes en curso: saldo inicial, interés de cada '
             'mes (capitalizado o cobrado), movimientos de capital y saldo final.',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
           ),
